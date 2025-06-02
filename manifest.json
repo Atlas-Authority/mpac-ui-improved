@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Atlassian Marketplace Transaction Enhancer",
+  "name": "MPAC UI Enhancer",
   "version": "1.0",
-  "description": "Adds checkboxes to transaction rows and calculates sums for the Atlassian Marketplace reporting page",
+  "description": "Designed to make the MPAC UI better. Currently all it does is help figure out net spend on transactions",
   "permissions": [
     "activeTab"
   ],
