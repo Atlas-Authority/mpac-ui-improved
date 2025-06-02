@@ -30,6 +30,12 @@ function formatAmount(amount) {
 
 // Create and add sum display
 function createSumDisplay() {
+  // Remove existing sum display if it exists
+  const existingSumDisplay = document.getElementById('transaction-sum-container');
+  if (existingSumDisplay) {
+    existingSumDisplay.remove();
+  }
+
   const sumContainer = document.createElement('div');
   sumContainer.id = 'transaction-sum-container';
   sumContainer.innerHTML = `
@@ -63,8 +69,27 @@ function updateSum() {
   }
 }
 
+// Clean up existing enhancements
+function cleanupExistingEnhancements() {
+  // Remove existing checkboxes and headers
+  const existingCheckboxCells = document.querySelectorAll('.checkbox-cell');
+  const existingCheckboxHeaders = document.querySelectorAll('.checkbox-header');
+  const existingSumDisplay = document.getElementById('transaction-sum-container');
+  
+  existingCheckboxCells.forEach(cell => cell.remove());
+  existingCheckboxHeaders.forEach(header => header.remove());
+  if (existingSumDisplay) {
+    existingSumDisplay.remove();
+  }
+}
+
 // Add checkbox to a row
 function addCheckboxToRow(row, netAmount) {
+  // Check if this row already has a checkbox
+  if (row.querySelector('.checkbox-cell')) {
+    return;
+  }
+
   // Create checkbox container
   const checkboxContainer = document.createElement('div');
   checkboxContainer.className = 'checkbox-container';
@@ -94,6 +119,11 @@ function addCheckboxToRow(row, netAmount) {
 
 // Add header for checkbox column
 function addCheckboxHeader(headerRow) {
+  // Check if header already has checkbox column
+  if (headerRow.querySelector('.checkbox-header')) {
+    return;
+  }
+
   const checkboxHeader = document.createElement('div');
   checkboxHeader.setAttribute('role', 'columnheader');
   checkboxHeader.className = 'css-ud4ddh-HeaderStyles checkbox-header';
@@ -124,11 +154,10 @@ function processTable() {
   const table = document.querySelector('[role="treegrid"]');
   if (!table) return;
   
-  // Check if already processed
-  if (table.querySelector('.checkbox-header')) {
-    console.log('Table already processed');
-    return;
-  }
+  console.log('Processing table with transaction enhancements...');
+  
+  // Clean up any existing enhancements first
+  cleanupExistingEnhancements();
   
   // Find header row
   const headerRow = table.querySelector('[role="row"]');
@@ -162,6 +191,78 @@ function processTable() {
   updateSum();
 }
 
+// Debounce function to prevent excessive processing
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+// Create debounced version of processTable
+const debouncedProcessTable = debounce(processTable, 300);
+
+// Set up table content observer
+function setupTableObserver() {
+  const table = document.querySelector('[role="treegrid"]');
+  if (!table) return;
+
+  // Observer for table content changes
+  const tableObserver = new MutationObserver((mutations) => {
+    let shouldReprocess = false;
+    
+    mutations.forEach((mutation) => {
+      // Check if rows were added, removed, or modified
+      if (mutation.type === 'childList') {
+        const addedNodes = Array.from(mutation.addedNodes);
+        const removedNodes = Array.from(mutation.removedNodes);
+        
+        // Check if any rows were added or removed
+        const hasRowChanges = addedNodes.some(node => 
+          node.nodeType === 1 && (
+            node.getAttribute('role') === 'row' || 
+            node.querySelector && node.querySelector('[role="row"]')
+          )
+        ) || removedNodes.some(node => 
+          node.nodeType === 1 && (
+            node.getAttribute('role') === 'row' || 
+            node.querySelector && node.querySelector('[role="row"]')
+          )
+        );
+        
+        if (hasRowChanges) {
+          shouldReprocess = true;
+        }
+      }
+      
+      // Check if text content of cells changed (updated amounts)
+      if (mutation.type === 'characterData' || 
+          (mutation.type === 'childList' && mutation.target.getAttribute('role') === 'gridcell')) {
+        shouldReprocess = true;
+      }
+    });
+    
+    if (shouldReprocess) {
+      console.log('Table content changed, reprocessing...');
+      debouncedProcessTable();
+    }
+  });
+
+  // Observe the table for changes
+  tableObserver.observe(table, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
+
+  return tableObserver;
+}
+
 // Initialize the extension
 async function init() {
   try {
@@ -170,6 +271,7 @@ async function init() {
     // Give a small delay for React to finish rendering
     setTimeout(() => {
       processTable();
+      setupTableObserver();
     }, 500);
     
   } catch (error) {
@@ -188,10 +290,7 @@ new MutationObserver(() => {
     lastUrl = url;
     if (url.includes('/reporting/transactions')) {
       // Clear any existing sum display before re-initializing
-      const existingSumDisplay = document.getElementById('transaction-sum-container');
-      if (existingSumDisplay) {
-        existingSumDisplay.remove();
-      }
+      cleanupExistingEnhancements();
       setTimeout(init, 1000);
     }
   }
