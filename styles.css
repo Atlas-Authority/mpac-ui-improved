@@ -1,0 +1,138 @@
+/* Transaction Sum Display */
+#transaction-sum-container {
+  margin: 16px 0;
+  padding: 12px 16px;
+  background-color: #f4f5f7;
+  border-radius: 4px;
+  border: 1px solid #dfe1e6;
+}
+
+.sum-display {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  font-size: 16px;
+  color: #172b4d;
+}
+
+#sum-amount {
+  margin-left: 8px;
+  color: #0052cc;
+  font-weight: 600;
+}
+
+/* Checkbox Column Styles */
+.checkbox-cell {
+  display: flex !important;
+  justify-content: center;
+  align-items: center;
+  padding: 8px;
+  min-width: 60px !important;
+  max-width: 60px !important;
+  flex-shrink: 0 !important;
+}
+
+.checkbox-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.transaction-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #0052cc;
+}
+
+/* Header checkbox styles */
+.checkbox-header {
+  display: flex !important;
+  justify-content: center;
+  align-items: center;
+  padding: 8px;
+  min-width: 60px !important;
+  max-width: 60px !important;
+  flex-shrink: 0 !important;
+  font-size: 12px;
+  color: #6b778c;
+  font-weight: 600;
+}
+
+.header-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.header-content input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #0052cc;
+}
+
+.header-content label {
+  font-size: 10px;
+  color: #6b778c;
+  cursor: pointer;
+  text-align: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Ensure table layout accommodates the new column */
+[role="treegrid"] [role="row"] {
+  display: flex !important;
+}
+
+[role="gridcell"], [role="columnheader"] {
+  flex: 1;
+}
+
+/* Keep other columns flexible, checkbox column fixed */
+[role="treegrid"] [role="columnheader"]:not(.checkbox-header),
+[role="treegrid"] [role="row"] > [role="gridcell"]:not(.checkbox-cell) {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Ensure the last column (before checkbox) and checkbox column align properly */
+[role="treegrid"] [role="row"] > [role="gridcell"]:nth-last-child(2),
+[role="treegrid"] [role="row"] > [role="gridcell"]:last-child {
+  flex-shrink: 0;
+}
+
+/* Hover and focus states */
+.transaction-checkbox:hover,
+.header-content input[type="checkbox"]:hover {
+  transform: scale(1.1);
+  transition: transform 0.15s ease;
+}
+
+.transaction-checkbox:focus,
+.header-content input[type="checkbox"]:focus {
+  outline: 2px solid #0052cc;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .checkbox-cell,
+  .checkbox-header {
+    min-width: 50px !important;
+    max-width: 50px !important;
+  }
+  
+  .header-content label {
+    font-size: 9px;
+  }
+  
+  .transaction-checkbox,
+  .header-content input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+  }
+} 

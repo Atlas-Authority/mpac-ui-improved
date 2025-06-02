@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Atlassian Marketplace Transaction Enhancer",
+  "version": "1.0",
+  "description": "Adds checkboxes to transaction rows and calculates sums for the Atlassian Marketplace reporting page",
+  "permissions": [
+    "activeTab"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://marketplace.atlassian.com/manage/vendors/*/reporting/transactions*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Transaction Enhancer"
+  }
+} 
