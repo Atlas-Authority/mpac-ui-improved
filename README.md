@@ -9,6 +9,8 @@ A Chrome extension that enhances the Atlassian Marketplace vendor reporting page
 - ✅ **Running total calculation** - Displays the sum of Net $ amounts for checked rows
 - ✅ **Select All functionality** - Master checkbox in the header to select/deselect all rows
 - ✅ **Real-time updates** - Sum updates automatically as you check/uncheck boxes
+- ✅ **Maintenance Period Analysis** - Analyzes maintenance periods to find gaps in coverage.
+- ✅ **Expand/Collapse All** - A button to expand or collapse all transaction rows at once.
 - ✅ **Entitlement URL rewriting** - Automatically rewrites entitlement URLs from licenses to transactions pages
 - ✅ **Responsive design** - Works on desktop and mobile layouts
 - ✅ **Accessibility support** - Proper ARIA labels and keyboard navigation
@@ -162,5 +164,6 @@ This extension is provided as-is for demonstration purposes. Feel free to modify
 
 ## Version History
 
+- **v1.2** - Added maintenance period analysis and expand/collapse all features.
 - **v1.1** - Added entitlement URL rewriting functionality
 - **v1.0** - Initial release with basic checkbox and sum functionality
