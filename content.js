@@ -3,7 +3,8 @@ if (typeof window.mpacTransactionEnhancerState === 'undefined') {
   window.mpacTransactionEnhancerState = {
     selectAllChecked: true, // Initial default
     isInitialProcess: true,  // Flag for first-time processing
-    rowCheckboxStates: {} // Stores individual row checkbox states { rowId: boolean }
+    rowCheckboxStates: {}, // Stores individual row checkbox states { rowId: boolean }
+    analysisData: null
   };
 }
 
@@ -52,6 +53,7 @@ function createSumDisplay() {
       <strong>Selected Total: <span id="sum-amount">$0.00</span></strong>
       <button id="analyze-button" class="css-1l34k60" style="margin-left: 15px;">Analyze Maintenance Periods</button>
       <button id="expand-collapse-all" class="css-1l34k60" style="margin-left: 15px;">Expand/Collapse All</button>
+      <button id="file-support-ticket-button" class="css-1l34k60" style="margin-left: 15px;">File Support Ticket</button>
     </div>
     <div id="gap-analysis-results" style="margin-top: 10px;"></div>
   `;
@@ -196,6 +198,12 @@ function analyzeMaintenancePeriods() {
         }
     }
 
+    // --- Store Analysis Data for Ticketing ---
+    window.mpacTransactionEnhancerState.analysisData = {
+        gaps,
+        lateRefunds
+    };
+
     // --- Display Results ---
     const resultsContainer = document.getElementById('gap-analysis-results');
     let html = '';
@@ -223,6 +231,58 @@ function analyzeMaintenancePeriods() {
     } else {
         resultsContainer.innerHTML = html;
     }
+}
+
+function fileSupportTicket() {
+  const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
+  const aen = aenElement ? aenElement.textContent.trim() : '';
+
+  // Get structured analysis data from global state
+  const analysisData = window.mpacTransactionEnhancerState.analysisData;
+
+  if (!aen) {
+    alert('Could not find App Entitlement Number (AEN) on the page.');
+    return;
+  }
+
+  if (!analysisData || (analysisData.gaps.length === 0 && analysisData.lateRefunds.length === 0)) {
+    alert('No analysis data found. Please run the analysis first.');
+    return;
+  }
+
+  const { gaps, lateRefunds } = analysisData;
+
+  let description = `Context:\n- App Entitlement Number (AEN): ${aen}\n\n`;
+
+  if (gaps.length > 0) {
+    description += 'Maintenance Gaps Found:\n';
+    description += '-----------------\n';
+    gaps.forEach(gap => {
+      description += `Gap from ${gap.start} to ${gap.end} (${gap.days} days)\n`;
+    });
+    description += '-----------------\n';
+    description += 'Please explain why the customer got our application for free during this period\n\n';
+  }
+
+  if (lateRefunds.length > 0) {
+    description += 'Late Refunds (> 30 days):\n';
+    description += '-----------------\n';
+    lateRefunds.forEach(item => {
+      description += `Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr}\n`;
+    });
+    description += '-----------------\n';
+    description += 'Please explain why this customer received refunds outside of the 30 day period without first getting approval from us.\n\n';
+  }
+
+  const supportData = {
+    aen: aen,
+    summary: `Review required for AEN: ${aen}`,
+    description: description.trim()
+  };
+
+  chrome.storage.local.set({ supportTicketData: supportData }, () => {
+    window.open('https://support.atlassian.com/contact/#/', '_blank');
+  });
 }
 
 // Update the sum display
@@ -448,6 +508,11 @@ function processTable() {
   if (expandCollapseButton) {
       expandCollapseButton.addEventListener('click', toggleExpandCollapseAll);
   }
+
+  const fileSupportTicketButton = sumContainer.querySelector('#file-support-ticket-button');
+  if (fileSupportTicketButton) {
+    fileSupportTicketButton.addEventListener('click', fileSupportTicket);
+  }
   
   // Initial sum calculation
   updateSelectAllHeaderState(); // Set header based on current row states
@@ -654,6 +719,7 @@ if (location.href.includes('/reporting/transactions')) {
     window.mpacTransactionEnhancerState.selectAllChecked = true;
     window.mpacTransactionEnhancerState.isInitialProcess = true;
     window.mpacTransactionEnhancerState.rowCheckboxStates = {}; // Clear stored states
+    window.mpacTransactionEnhancerState.analysisData = null;
   }
   init();
 }
@@ -715,6 +781,7 @@ new MutationObserver(() => {
         window.mpacTransactionEnhancerState.selectAllChecked = true;
         window.mpacTransactionEnhancerState.isInitialProcess = true;
         window.mpacTransactionEnhancerState.rowCheckboxStates = {}; // Clear stored states
+        window.mpacTransactionEnhancerState.analysisData = null;
       }
       initInProgress = false;
       init();

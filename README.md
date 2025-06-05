@@ -11,6 +11,7 @@ A Chrome extension that enhances the Atlassian Marketplace vendor reporting page
 - ✅ **Real-time updates** - Sum updates automatically as you check/uncheck boxes
 - ✅ **Maintenance Period Analysis** - Analyzes maintenance periods to find gaps in coverage and flags refunds that occur more than 30 days after the initial transaction.
 - ✅ **Expand/Collapse All** - A button to expand or collapse all transaction rows at once.
+- ✅ **File Support Ticket** - Pre-fills an Atlassian support ticket with details about maintenance gaps and late refunds.
 - ✅ **Entitlement URL rewriting** - Automatically rewrites entitlement URLs from licenses to transactions pages
 - ✅ **Responsive design** - Works on desktop and mobile layouts
 - ✅ **Accessibility support** - Proper ARIA labels and keyboard navigation
@@ -164,6 +165,9 @@ This extension is provided as-is for demonstration purposes. Feel free to modify
 
 ## Version History
 
+- **v1.6** - Added a "File Support Ticket" button to automate the creation of support tickets for maintenance gaps and late refunds.
+- **v1.5** - (Internal release) Added support ticket filing functionality.
+- **v1.4** - (Internal release) Added expand/collapse all button.
 - **v1.3** - Added late refund detection to the maintenance period analysis.
 - **v1.2** - Added maintenance period analysis and expand/collapse all features.
 - **v1.1** - Added entitlement URL rewriting functionality
