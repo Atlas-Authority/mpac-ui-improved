@@ -275,22 +275,58 @@ function setupTableObserver() {
 }
 
 // Initialize the extension
+const MAX_INIT_RETRIES = 15; // Max 15 retries (e.g., 15 seconds if 1s interval)
+const INIT_RETRY_INTERVAL = 1000; // 1 second
+let initRetries = 0;
+let initInProgress = false; // Flag to prevent multiple concurrent inits
+
 async function init() {
-  console.log('Transaction Enhancer: init() called. Current URL:', location.href);
+  if (initInProgress) {
+    console.log('Transaction Enhancer: Init already in progress.');
+    return;
+  }
+  initInProgress = true;
+  console.log(`Transaction Enhancer: init() called (attempt ${initRetries + 1}/${MAX_INIT_RETRIES}). Current URL: ${location.href}`);
+
   try {
-    await waitForTable(); // waitForTable already ensures the table is ready
-    console.log('Transaction Enhancer: Table ready, proceeding with processTable and setupTableObserver.');
-    processTable();
-    setupTableObserver();
+    await waitForTable(); // Ensures the main table container exists
+    console.log('Transaction Enhancer: Table container found.');
     
+    processTable(); // Attempt to add checkboxes and sum display
+    
+    // Check if enhancements were successfully applied (e.g., sum display exists)
+    const sumDisplay = document.getElementById('transaction-sum-container');
+    if (sumDisplay) {
+      console.log('Transaction Enhancer: processTable() successful, sum display found. Setting up observer.');
+      setupTableObserver();
+      initRetries = 0; // Reset retries on success
+      initInProgress = false;
+    } else {
+      console.log('Transaction Enhancer: processTable() did not add sum display yet (table might be empty or rendering). Retrying...');
+      initRetries++;
+      if (initRetries < MAX_INIT_RETRIES) {
+        setTimeout(() => {
+          initInProgress = false; // Allow next attempt
+          init(); // Retry
+        }, INIT_RETRY_INTERVAL);
+      } else {
+        console.error(`Transaction Enhancer: Max retries (${MAX_INIT_RETRIES}) reached. Could not initialize enhancements.`);
+        initRetries = 0; // Reset for future attempts if URL changes
+        initInProgress = false;
+      }
+    }
   } catch (error) {
-    console.error('Transaction Enhancer Error:', error);
+    console.error('Transaction Enhancer Error during init:', error);
+    initRetries = 0; // Reset retries on error
+    initInProgress = false;
   }
 }
 
 // Start the extension
 // Initial init call will run if the page matches the content script pattern directly.
 if (location.href.includes('/reporting/transactions')) {
+  // Reset retries when starting fresh on a matching URL
+  initRetries = 0;
   init();
 }
 
@@ -319,24 +355,27 @@ function rewriteEntitlementURLs() {
 // Watch for page changes (in case of SPA navigation)
 let lastUrl = location.href;
 new MutationObserver(() => {
-  const url = location.href;
-  if (url !== lastUrl) {
-    lastUrl = url;
-    console.log('Transaction Enhancer: URL changed from', lastUrl, 'to', url);
-    if (url.includes('/reporting/transactions')) {
+  const currentUrl = location.href; // Get the current URL once
+  if (currentUrl !== lastUrl) {
+    console.log('Transaction Enhancer: URL changed from', lastUrl, 'to', currentUrl);
+    lastUrl = currentUrl; // Update lastUrl *after* comparison and logging
+
+    if (currentUrl.includes('/reporting/transactions')) {
       console.log('Transaction Enhancer: Navigated to transactions page, re-initializing.');
-      // Clear any existing sum display and enhancements before re-initializing
       cleanupExistingEnhancements();
-      init(); // Call init directly, waitForTable will handle readiness
-      // Also run URL rewriting on transactions page changes
-      setTimeout(rewriteEntitlementURLs, 500); // This can keep its delay or be integrated if needed
+      initRetries = 0;
+      initInProgress = false;
+      init();
+      setTimeout(rewriteEntitlementURLs, 500);
     } else {
       console.log('Transaction Enhancer: Navigated away from transactions page, cleaning up.');
       cleanupExistingEnhancements();
+      initRetries = 0;
+      initInProgress = false;
       if (currentTableObserver) {
         currentTableObserver.disconnect();
         currentTableObserver = null;
-        console.log('Transaction Enhancer: Disconnected table observer.');
+        console.log('Transaction Enhancer: Disconnected table observer on navigating away.');
       }
     }
   }
