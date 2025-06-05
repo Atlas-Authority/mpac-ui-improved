@@ -70,6 +70,11 @@ function analyzeMaintenancePeriods() {
     const transactionRows = document.querySelectorAll('div[data-mpac-row-id]');
 
     transactionRows.forEach(row => {
+        const saleDateCell = row.querySelector('div[role="gridcell"]:nth-child(1)');
+        const dateMatch = saleDateCell ? saleDateCell.textContent.match(/\d{4}-\d{2}-\d{2}/) : null;
+        const saleDateText = dateMatch ? dateMatch[0] : null;
+        const saleDate = saleDateText ? new Date(`${saleDateText}T00:00:00Z`) : null;
+
         const saleTypeCell = row.querySelector('div[role="gridcell"]:nth-child(5)');
         const saleType = saleTypeCell ? saleTypeCell.textContent.trim().toLowerCase() : 'unknown';
 
@@ -87,10 +92,10 @@ function analyzeMaintenancePeriods() {
             if (maintenancePeriodText) {
                 const [startDateStr, endDateStr] = maintenancePeriodText.split(' to ');
                 if (startDateStr && endDateStr) {
-                    const startDate = new Date(startDateStr);
-                    const endDate = new Date(endDateStr);
-                    if (!isNaN(startDate) && !isNaN(endDate)) {
-                        transactions.push({ startDate, endDate, saleType, periodStr: maintenancePeriodText });
+                    const startDate = new Date(`${startDateStr}T00:00:00Z`);
+                    const endDate = new Date(`${endDateStr}T00:00:00Z`);
+                    if (!isNaN(startDate) && !isNaN(endDate) && saleDate && !isNaN(saleDate)) {
+                        transactions.push({ saleDate, startDate, endDate, saleType, periodStr: maintenancePeriodText });
                     }
                 }
             }
@@ -100,6 +105,34 @@ function analyzeMaintenancePeriods() {
     const renewals = transactions.filter(t => t.saleType !== 'refund');
     const refunds = transactions.filter(t => t.saleType === 'refund');
 
+    // --- Late Refund Logic ---
+    const lateRefunds = [];
+    const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+
+    for (const refund of refunds) {
+        const potentialOriginalTxs = renewals
+            .filter(r =>
+                r.periodStr === refund.periodStr &&
+                r.saleDate < refund.saleDate
+            )
+            .sort((a, b) => b.saleDate - a.saleDate);
+
+        if (potentialOriginalTxs.length > 0) {
+            const originalTx = potentialOriginalTxs[0];
+            const timeDiff = refund.saleDate.getTime() - originalTx.saleDate.getTime();
+
+            if (timeDiff > thirtyDaysInMs) {
+                const daysDiff = Math.round(timeDiff / (1000 * 3600 * 24));
+                lateRefunds.push({
+                    refund,
+                    originalTx,
+                    days: daysDiff
+                });
+            }
+        }
+    }
+
+    // --- Gap Analysis Logic (uses active renewals) ---
     const activeRenewals = [];
     const usedRefunds = new Set();
 
@@ -111,28 +144,22 @@ function analyzeMaintenancePeriods() {
         );
 
         if (matchingRefundIndex !== -1) {
-            // This renewal is refunded, mark the refund as used and skip the renewal
             usedRefunds.add(matchingRefundIndex);
         } else {
-            // This renewal is active
             activeRenewals.push(renewal);
         }
     }
 
-    // Sort active renewals by start date
     activeRenewals.sort((a, b) => a.startDate - b.startDate);
 
-    // Merge overlapping/contiguous periods
     const mergedPeriods = [];
     if (activeRenewals.length > 0) {
         let currentPeriod = { ...activeRenewals[0] };
-
         for (let i = 1; i < activeRenewals.length; i++) {
             const nextPeriod = activeRenewals[i];
             const dayAfterCurrentEnd = new Date(currentPeriod.endDate);
-            dayAfterCurrentEnd.setDate(dayAfterCurrentEnd.getDate() + 1);
+            dayAfterCurrentEnd.setUTCDate(dayAfterCurrentEnd.getUTCDate() + 1);
 
-            // If the next period starts on or before the day after the current one ends, merge them
             if (nextPeriod.startDate <= dayAfterCurrentEnd) {
                 if (nextPeriod.endDate > currentPeriod.endDate) {
                     currentPeriod.endDate = nextPeriod.endDate;
@@ -145,23 +172,21 @@ function analyzeMaintenancePeriods() {
         mergedPeriods.push(currentPeriod);
     }
 
-
     const gaps = [];
     for (let i = 0; i < mergedPeriods.length - 1; i++) {
         const currentEndDate = mergedPeriods[i].endDate;
         const nextStartDate = mergedPeriods[i + 1].startDate;
 
-        const gapStartDate = new Date(currentEndDate);
-        gapStartDate.setDate(gapStartDate.getDate() + 1);
+        const gapStartDate = new Date(currentEndDate.getTime());
+        gapStartDate.setUTCDate(gapStartDate.getUTCDate() + 1);
 
         if (gapStartDate < nextStartDate) {
-            const gapEndDate = new Date(nextStartDate);
-            gapEndDate.setDate(gapEndDate.getDate() - 1);
+            const gapEndDate = new Date(nextStartDate.getTime());
+            gapEndDate.setUTCDate(gapEndDate.getUTCDate() - 1);
 
             if (gapEndDate >= gapStartDate) {
                 const timeDiff = gapEndDate.getTime() - gapStartDate.getTime();
-                const dayDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
-
+                const dayDiff = Math.round(timeDiff / (1000 * 3600 * 24)) + 1;
                 gaps.push({
                     start: gapStartDate.toISOString().split('T')[0],
                     end: gapEndDate.toISOString().split('T')[0],
@@ -171,16 +196,32 @@ function analyzeMaintenancePeriods() {
         }
     }
 
+    // --- Display Results ---
     const resultsContainer = document.getElementById('gap-analysis-results');
+    let html = '';
+
     if (gaps.length > 0) {
-        let html = '<h3>Maintenance Gaps Found:</h3><ul>';
+        html += '<h3>Maintenance Gaps Found:</h3><ul>';
         gaps.forEach(gap => {
             html += `<li>Gap from ${gap.start} to ${gap.end} (${gap.days} days)</li>`;
         });
         html += '</ul>';
-        resultsContainer.innerHTML = html;
     } else {
-        resultsContainer.innerHTML = '<p>No maintenance gaps found.</p>';
+        html += '<p>No maintenance gaps found.</p>';
+    }
+
+    if (lateRefunds.length > 0) {
+        html += '<h3>Late Refunds (> 30 days):</h3><ul>';
+        lateRefunds.forEach(item => {
+            html += `<li>Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr}</li>`;
+        });
+        html += '</ul>';
+    }
+
+    if (gaps.length === 0 && lateRefunds.length === 0) {
+        resultsContainer.innerHTML = '<p>No maintenance gaps or late refunds found.</p>';
+    } else {
+        resultsContainer.innerHTML = html;
     }
 }
 
