@@ -188,89 +188,42 @@ function addStatusIndicator(row, status) {
 }
 
 async function applyProcessedVisuals() {
-    console.log("applyProcessedVisuals: Running with enhanced relationship tracking...");
+    console.log("applyProcessedVisuals: Running with Order ID primary tracking...");
     
-    const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
-    const aen = aenElement ? aenElement.textContent.trim() : null;
-    
-    if (!aen) {
-        console.log("applyProcessedVisuals: No AEN found, falling back to legacy mode.");
-        await applyLegacyProcessedVisuals();
-        return;
-    }
+    // Primary: Use Order ID status mapping (works with collapsed rows)
+    const orderStatusKey = 'orderIdStatuses';
+    const data = await storageGet(orderStatusKey);
+    const orderStatuses = data[orderStatusKey] || {};
 
-    const relationshipsKey = 'transactionRelationships';
-    const data = await storageGet(relationshipsKey);
-    const relationships = data[relationshipsKey] || {};
-    const aenData = relationships[aen];
-
-    if (!aenData) {
-        console.log(`applyProcessedVisuals: No relationship data found for AEN ${aen}.`);
-        return;
-    }
-
-    console.log(`applyProcessedVisuals: Found relationship data for AEN ${aen}:`, aenData);
+    console.log(`applyProcessedVisuals: Found ${Object.keys(orderStatuses).length} Order ID statuses in storage.`);
 
     const transactionRows = document.querySelectorAll('div[role="row"]');
     console.log(`applyProcessedVisuals: Found ${transactionRows.length} transaction rows on the page.`);
 
+    let appliedCount = 0;
     transactionRows.forEach(row => {
         const orderIdElement = row.querySelector('div.css-1dzhcs > div:nth-child(2) > span > span');
         if (orderIdElement) {
             const orderId = orderIdElement.textContent.trim();
             
-            // Check status across all periods for this order ID
-            let transactionStatus = null;
-            for (const periodKey in aenData.periods) {
-                const period = aenData.periods[periodKey];
-                if (period.renewals.includes(orderId) || period.refunds.includes(orderId)) {
-                    // Find the most significant status (issues > needs_reanalysis > clean)
-                    if (period.status === 'issues') {
-                        transactionStatus = 'issues';
-                        break; // Issues is highest priority
-                    } else if (period.status === 'needs_reanalysis' && transactionStatus !== 'issues') {
-                        transactionStatus = 'needs_reanalysis';
-                    } else if (period.status === 'clean' && !transactionStatus) {
-                        transactionStatus = 'clean';
-                    }
-                }
-            }
-
-            if (transactionStatus) {
-                console.log(`applyProcessedVisuals: Found Order ID ${orderId} with status ${transactionStatus}.`);
-                addStatusIndicator(row, transactionStatus);
+            if (orderStatuses[orderId]) {
+                const status = orderStatuses[orderId];
+                console.log(`applyProcessedVisuals: Found Order ID ${orderId} with status ${status}.`);
+                addStatusIndicator(row, status);
+                appliedCount++;
             }
         }
     });
-    console.log("applyProcessedVisuals: Finished enhanced processing.");
-}
-
-// Legacy support for existing data
-async function applyLegacyProcessedVisuals() {
-    console.log("applyLegacyProcessedVisuals: Running legacy mode...");
-    const storageKey = 'processedRefundOrderIds';
-    const data = await storageGet(storageKey);
-    const processedOrderIds = new Set(data[storageKey] || []);
-
-    if (processedOrderIds.size === 0) {
-        console.log("applyLegacyProcessedVisuals: No processed Order IDs found in storage.");
-        return;
-    }
     
-    console.log(`applyLegacyProcessedVisuals: Found ${processedOrderIds.size} processed Order IDs in storage.`, processedOrderIds);
+    console.log(`applyProcessedVisuals: Applied ${appliedCount} status indicators.`);
 
-    const transactionRows = document.querySelectorAll('div[role="row"]');
-    transactionRows.forEach(row => {
-        const orderIdElement = row.querySelector('div.css-1dzhcs > div:nth-child(2) > span > span');
-        if (orderIdElement) {
-            const orderId = orderIdElement.textContent.trim();
-            if (processedOrderIds.has(orderId)) {
-                console.log(`applyLegacyProcessedVisuals: Found matching Order ID ${orderId}. Applying legacy visual.`);
-                addStatusIndicator(row, 'clean');
-            }
-        }
-    });
-    console.log("applyLegacyProcessedVisuals: Finished.");
+    // Secondary: Check for relationship changes if AEN is available
+    const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
+    if (aenElement) {
+        const aen = aenElement.textContent.trim();
+        console.log(`applyProcessedVisuals: AEN ${aen} available for relationship checking.`);
+        // This will be called separately for notifications
+    }
 }
 
 async function analyzeMaintenancePeriods() {
@@ -517,20 +470,9 @@ async function analyzeMaintenancePeriods() {
     if (aen) {
         await updateTransactionRelationships(aen, transactions, gaps, lateRefunds);
     } else {
-        // Fallback to legacy processing for compatibility
-        const processedRefundsStorageKey = 'processedRefundOrderIds';
-        const data = await storageGet(processedRefundsStorageKey);
-        const processedOrderIds = new Set(data[processedRefundsStorageKey] || []);
-
-        console.log(`analyzeMaintenancePeriods: Found ${refunds.length} refunds in the current view.`);
-        refunds.forEach(refund => {
-            if (refund.orderId) {
-                processedOrderIds.add(refund.orderId);
-            }
-        });
-
-        console.log(`analyzeMaintenancePeriods: Storing ${processedOrderIds.size} total processed Order IDs.`, [...processedOrderIds]);
-        await storageSet({ [processedRefundsStorageKey]: [...processedOrderIds] });
+        // No AEN available, but still update Order ID status mapping directly
+        console.log(`analyzeMaintenancePeriods: No AEN found, updating Order ID statuses directly`);
+        await updateOrderIdStatusesDirectly(transactions, gaps, lateRefunds);
     }
     
     // Apply visuals immediately after analysis
@@ -1837,9 +1779,12 @@ function getPeriodKey(periodStr) {
 async function updateTransactionRelationships(aen, transactions, gaps, lateRefunds) {
     console.log(`updateTransactionRelationships: Processing AEN ${aen} with ${transactions.length} transactions`);
     
+    // Get both storage systems
     const relationshipsKey = 'transactionRelationships';
-    const data = await storageGet(relationshipsKey);
+    const orderStatusKey = 'orderIdStatuses';
+    const data = await storageGet([relationshipsKey, orderStatusKey]);
     const relationships = data[relationshipsKey] || {};
+    const orderStatuses = data[orderStatusKey] || {};
     
     if (!relationships[aen]) {
         relationships[aen] = {
@@ -1914,15 +1859,28 @@ async function updateTransactionRelationships(aen, transactions, gaps, lateRefun
             lastRefundDate: getLatestRefundDate(currentGroup.refunds, transactions),
             ticketIds: existingPeriod ? existingPeriod.ticketIds || [] : []
         };
+
+        // Update Order ID status mapping for quick lookup
+        const allOrderIdsInPeriod = [...currentGroup.renewals, ...currentGroup.refunds];
+        allOrderIdsInPeriod.forEach(orderId => {
+            if (orderId) {
+                orderStatuses[orderId] = status;
+            }
+        });
     }
 
     // Update processed order IDs
     const allOrderIds = transactions.map(t => t.orderId).filter(Boolean);
     aenData.processedOrderIds = [...new Set([...aenData.processedOrderIds, ...allOrderIds])];
 
-    // Save updated relationships
-    await storageSet({ [relationshipsKey]: relationships });
+    // Save both storage systems
+    await storageSet({ 
+        [relationshipsKey]: relationships,
+        [orderStatusKey]: orderStatuses
+    });
+    
     console.log(`updateTransactionRelationships: Updated relationships for AEN ${aen}:`, aenData);
+    console.log(`updateTransactionRelationships: Updated ${Object.keys(orderStatuses).length} Order ID statuses`);
 }
 
 // Helper function to check if two sets are equal
@@ -2038,6 +1996,64 @@ async function showRelationshipChangeNotifications() {
             }
         }, 10000);
     }
+}
+
+// Update Order ID statuses directly when no AEN is available
+async function updateOrderIdStatusesDirectly(transactions, gaps, lateRefunds) {
+    console.log(`updateOrderIdStatusesDirectly: Processing ${transactions.length} transactions`);
+    
+    const orderStatusKey = 'orderIdStatuses';
+    const data = await storageGet(orderStatusKey);
+    const orderStatuses = data[orderStatusKey] || {};
+    
+    // Group transactions by period to detect issues
+    const periodGroups = {};
+    transactions.forEach(tx => {
+        const periodKey = getPeriodKey(tx.periodStr);
+        if (periodKey) {
+            if (!periodGroups[periodKey]) {
+                periodGroups[periodKey] = { renewals: [], refunds: [], periodStr: tx.periodStr };
+            }
+            if (tx.saleType === 'refund') {
+                periodGroups[periodKey].refunds.push(tx.orderId);
+            } else {
+                periodGroups[periodKey].renewals.push(tx.orderId);
+            }
+        }
+    });
+
+    // Determine status for each period
+    for (const periodKey in periodGroups) {
+        const currentGroup = periodGroups[periodKey];
+        let status = 'clean'; // Default status
+        
+        // Check for issues in this period
+        const periodGaps = gaps.filter(gap => 
+            gap.start >= currentGroup.periodStr.split(' to ')[0] && 
+            gap.end <= currentGroup.periodStr.split(' to ')[1]
+        );
+        
+        const periodLateRefunds = lateRefunds.filter(item => 
+            getPeriodKey(item.refund.periodStr) === periodKey
+        );
+
+        if (periodGaps.length > 0 || periodLateRefunds.length > 0) {
+            status = 'issues';
+        }
+
+        // Update Order ID status mapping for all transactions in this period
+        const allOrderIdsInPeriod = [...currentGroup.renewals, ...currentGroup.refunds];
+        allOrderIdsInPeriod.forEach(orderId => {
+            if (orderId) {
+                orderStatuses[orderId] = status;
+            }
+        });
+    }
+
+    // Save updated order statuses
+    await storageSet({ [orderStatusKey]: orderStatuses });
+    
+    console.log(`updateOrderIdStatusesDirectly: Updated ${Object.keys(orderStatuses).length} Order ID statuses`);
 }
 
 // The URL rewriting is now handled within processTable, which is triggered
