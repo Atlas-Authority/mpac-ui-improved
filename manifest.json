@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MPAC UI Enhancer",
-  "version": "1.2",
-  "description": "Enhances the Atlassian Marketplace vendor reporting page with features like transaction calculations, maintenance period analysis, and an expand/collapse all button.",
+  "version": "1.4",
+  "description": "Enhances the Atlassian Marketplace vendor reporting page with features like transaction calculations, maintenance period analysis, late refund detection, and an expand/collapse all button.",
   "permissions": [
     "activeTab"
   ],
