@@ -56,6 +56,53 @@ function formatAmount(amount) {
   return `${sign}$${absAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Show modal instead of alert
+function showModal(title, message, onClose = null) {
+  // Remove any existing modal
+  const existingModal = document.querySelector('.mpac-modal');
+  if (existingModal) {
+    existingModal.remove();
+  }
+
+  const modal = document.createElement('div');
+  modal.className = 'mpac-modal';
+  modal.innerHTML = `
+    <div class="mpac-modal-content">
+      <div class="mpac-modal-title">${title}</div>
+      <div class="mpac-modal-message">${message}</div>
+      <button class="mpac-modal-button" onclick="this.closest('.mpac-modal').remove()">OK</button>
+    </div>
+  `;
+
+  // Add click outside to close
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.remove();
+      if (onClose) onClose();
+    }
+  });
+
+  // Add escape key to close
+  const handleEscape = (e) => {
+    if (e.key === 'Escape') {
+      modal.remove();
+      document.removeEventListener('keydown', handleEscape);
+      if (onClose) onClose();
+    }
+  };
+  document.addEventListener('keydown', handleEscape);
+
+  // Handle button click
+  const button = modal.querySelector('.mpac-modal-button');
+  button.addEventListener('click', () => {
+    modal.remove();
+    document.removeEventListener('keydown', handleEscape);
+    if (onClose) onClose();
+  });
+
+  document.body.appendChild(modal);
+}
+
 
 
 // Promisified storage.get with error checking
@@ -104,6 +151,7 @@ function createSumDisplay() {
             <a href="#" id="analyze-button-dropdown">Analyze Maintenance Periods</a>
             <a href="#" id="file-support-ticket-button-dropdown">File Support Ticket</a>
             <a href="#" id="reset-processing-state-dropdown">Reset Processing State</a>
+            <a href="#" id="reset-history-page-records-dropdown">Reset History for Page Records</a>
           </div>
         </div>
       </div>
@@ -793,6 +841,52 @@ function injectStyles() {
     .dropdown-content a:hover {
       background-color: #ddd;
     }
+    .mpac-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 10000;
+    }
+    .mpac-modal-content {
+      background-color: white;
+      padding: 30px;
+      border-radius: 10px;
+      max-width: 500px;
+      width: 90%;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      text-align: center;
+    }
+    .mpac-modal-title {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      color: #4CAF50;
+    }
+    .mpac-modal-message {
+      font-size: 16px;
+      margin-bottom: 25px;
+      color: #333;
+      line-height: 1.4;
+    }
+    .mpac-modal-button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    .mpac-modal-button:hover {
+      background-color: #45a049;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -908,6 +1002,18 @@ async function runAnalysisAndTicketing(isAutomated = false) {
 async function processRefundsSequentially() {
     console.log('🚀 Starting sequential refund processing...');
 
+    // First check if there's already processing happening
+    const data = await storageGet(['refundQueue', 'activeRefundJob', 'totalRefundsToProcess']);
+    const queue = data.refundQueue || [];
+    const activeJob = data.activeRefundJob;
+    const totalRefunds = data.totalRefundsToProcess || 0;
+
+    // If there's already an active job or queue, don't start new processing
+    if (activeJob || queue.length > 0 || totalRefunds > 0) {
+        showModal('Processing Already Active', 'Refund processing is already in progress. Use the button controls to continue or reset the processing state.');
+        return;
+    }
+
     const transactionRows = document.querySelectorAll('div[data-mpac-row-id]');
     const unprocessedRows = [];
 
@@ -920,7 +1026,7 @@ async function processRefundsSequentially() {
     });
 
     if (unprocessedRows.length === 0) {
-        alert('No unprocessed refunds found to process.');
+        showModal('No Unprocessed Refunds', 'No unprocessed refunds found to process. All visible refunds appear to have been analyzed already.');
         return;
     }
 
@@ -1013,7 +1119,7 @@ async function processNextInQueue() {
             processButton.disabled = false;
         }
         
-        alert('All refunds have been processed! Check the open tabs for results.');
+        showModal('Processing Complete', 'All refunds have been processed! Check the open tabs for results.');
         // Apply processed visuals to show any new checkmarks
         await applyProcessedVisuals();
         return;
@@ -1229,6 +1335,10 @@ function processTable() {
   const resetProcessingStateButton = sumContainer.querySelector('#reset-processing-state-dropdown');
   if (resetProcessingStateButton) {
     resetProcessingStateButton.addEventListener('click', (e) => { e.preventDefault(); resetProcessingState(); });
+  }
+  const resetHistoryPageRecordsButton = sumContainer.querySelector('#reset-history-page-records-dropdown');
+  if (resetHistoryPageRecordsButton) {
+    resetHistoryPageRecordsButton.addEventListener('click', (e) => { e.preventDefault(); resetHistoryForPageRecords(); });
   }
   const dropdownButton = sumContainer.querySelector('#dropdown-button');
   const dropdownContent = sumContainer.querySelector('#dropdown-content');
@@ -1604,6 +1714,23 @@ async function runAutomatedProcessingDirectly() {
         await runAnalysisAndTicketing(true);
         console.log('🤖 Step 5 Complete: Analysis finished');
         
+        // Update banner with final results
+        const analysisData = window.mpacTransactionEnhancerState.analysisData;
+        let resultMessage = '✅ Analysis Complete';
+        if (analysisData) {
+            const totalIssues = (analysisData.gaps?.length || 0) + (analysisData.lateRefunds?.length || 0);
+            if (totalIssues > 0) {
+                resultMessage = `⚠️ Analysis Complete: ${totalIssues} issue${totalIssues > 1 ? 's' : ''} found and processed`;
+                processingBanner.style.background = '#ff9800';
+                processingBanner.style.borderBottomColor = '#f57c00';
+            } else {
+                resultMessage = '✅ Analysis Complete: No issues found';
+                processingBanner.style.background = '#4CAF50';
+                processingBanner.style.borderBottomColor = '#45a049';
+            }
+        }
+        processingBanner.textContent = resultMessage;
+        
     } catch (error) {
         console.error('🤖 ERROR in automated processing:', error);
         console.error('🤖 ERROR stack:', error.stack);
@@ -1762,6 +1889,127 @@ async function resetProcessingState() {
   } catch (error) {
     console.error('Error resetting processing state:', error);
     alert('Error resetting processing state. Check console for details.');
+  }
+}
+
+async function resetHistoryForPageRecords() {
+  try {
+    console.log('resetHistoryForPageRecords: Starting reset for visible page records...');
+    
+    // Get all visible transaction rows on the current page
+    const transactionRows = document.querySelectorAll('div[role="row"]');
+    const orderIdsToReset = [];
+    
+    // Extract Order IDs from visible rows
+    transactionRows.forEach(row => {
+      const orderIdElement = row.querySelector('div.css-1dzhcs > div:nth-child(2) > span > span');
+      if (orderIdElement) {
+        const orderId = orderIdElement.textContent.trim();
+        if (orderId) {
+          orderIdsToReset.push(orderId);
+        }
+      }
+    });
+    
+    if (orderIdsToReset.length === 0) {
+      showModal('No Records Found', 'No transaction records found on this page to reset.');
+      return;
+    }
+    
+    console.log(`resetHistoryForPageRecords: Found ${orderIdsToReset.length} Order IDs to reset:`, orderIdsToReset);
+    
+    // Get current storage data
+    const orderStatusKey = 'orderIdStatuses';
+    const relationshipsKey = 'transactionRelationships';
+    const data = await storageGet([orderStatusKey, relationshipsKey]);
+    const orderStatuses = data[orderStatusKey] || {};
+    const relationships = data[relationshipsKey] || {};
+    
+    // Count how many actually had status before reset
+    let resetCount = 0;
+    
+    // Remove Order IDs from status mapping
+    orderIdsToReset.forEach(orderId => {
+      if (orderStatuses[orderId]) {
+        delete orderStatuses[orderId];
+        resetCount++;
+      }
+    });
+    
+    // Also clear from relationships data and ticketed items if AEN is available
+    const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
+    const aen = aenElement ? aenElement.textContent.trim() : null;
+    
+    if (aen && relationships[aen]) {
+      const aenData = relationships[aen];
+      
+      // Remove from processed order IDs
+      aenData.processedOrderIds = aenData.processedOrderIds.filter(
+        orderId => !orderIdsToReset.includes(orderId)
+      );
+      
+      // Update periods to remove these order IDs
+      Object.keys(aenData.periods).forEach(periodKey => {
+        const period = aenData.periods[periodKey];
+        period.renewals = period.renewals.filter(orderId => !orderIdsToReset.includes(orderId));
+        period.refunds = period.refunds.filter(orderId => !orderIdsToReset.includes(orderId));
+        
+        // If period has no transactions left, we can remove it entirely
+        if (period.renewals.length === 0 && period.refunds.length === 0) {
+          delete aenData.periods[periodKey];
+        }
+      });
+      
+      console.log(`resetHistoryForPageRecords: Updated relationships for AEN ${aen}`);
+    }
+    
+    // Clear ticketed items for this AEN since we're resetting the history
+    // This ensures that any gaps or late refunds related to the reset transactions
+    // will also have their ticketed status cleared
+    if (aen) {
+      const ticketedItemsStorageKey = `ticketedItems_${aen}`;
+      const ticketedData = await storageGet(ticketedItemsStorageKey);
+      const currentTicketedItems = ticketedData[ticketedItemsStorageKey] || [];
+      
+      if (currentTicketedItems.length > 0) {
+        // Clear all ticketed items for this AEN since we're doing a page reset
+        await storageSet({ [ticketedItemsStorageKey]: [] });
+        console.log(`resetHistoryForPageRecords: Cleared ${currentTicketedItems.length} ticketed items for AEN ${aen}`);
+      }
+    }
+    
+    // Save updated storage
+    await storageSet({ 
+      [orderStatusKey]: orderStatuses,
+      [relationshipsKey]: relationships
+    });
+    
+    console.log(`resetHistoryForPageRecords: Removed ${resetCount} Order ID statuses from storage`);
+    
+    // Remove visual status indicators from the page
+    transactionRows.forEach(row => {
+      const statusIndicator = row.querySelector('.status-indicator');
+      if (statusIndicator) {
+        statusIndicator.remove();
+      }
+    });
+    
+    // Clear any analysis results display since it may no longer be accurate
+    const resultsContainer = document.getElementById('gap-analysis-results');
+    if (resultsContainer) {
+      resultsContainer.innerHTML = '';
+    }
+    
+    showModal(
+      'History Reset Complete', 
+      `Successfully reset processing history for ${orderIdsToReset.length} records on this page. ${resetCount} records had previous status that was cleared.`
+    );
+    
+    console.log('resetHistoryForPageRecords: Reset completed successfully');
+    
+  } catch (error) {
+    console.error('Error resetting history for page records:', error);
+    showModal('Reset Error', 'An error occurred while resetting history. Check the console for details.');
   }
 }
 
