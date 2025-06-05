@@ -1,3 +1,12 @@
+// Global state for checkbox handling
+if (typeof window.mpacTransactionEnhancerState === 'undefined') {
+  window.mpacTransactionEnhancerState = {
+    selectAllChecked: true, // Initial default
+    isInitialProcess: true,  // Flag for first-time processing
+    rowCheckboxStates: {} // Stores individual row checkbox states { rowId: boolean }
+  };
+}
+
 // Wait for the page to fully load
 function waitForTable() {
   return new Promise((resolve) => {
@@ -83,12 +92,45 @@ function cleanupExistingEnhancements() {
   }
 }
 
+let nextRowIdCounter = 0; // Counter for generating unique row IDs
+
+function getOrCreateRowId(row) {
+  if (row.dataset.mpacRowId) {
+    return row.dataset.mpacRowId;
+  }
+  // More robust ID generation could involve hashing some unique row content if available.
+  // For now, a counter scoped to a processTable run is sufficient.
+  const newId = `mpac-row-${nextRowIdCounter++}`;
+  row.dataset.mpacRowId = newId;
+  return newId;
+}
+ 
 // Add checkbox to a row
 function addCheckboxToRow(row, netAmount) {
   // Check if this row already has a checkbox
-  if (row.querySelector('.checkbox-cell')) {
+  const existingCheckboxCell = row.querySelector('.checkbox-cell');
+  if (existingCheckboxCell) {
+    // If checkbox cell exists, ensure its checkbox state is updated based on stored state
+    // This handles cases where the row might be re-rendered by the page but our cell isn't removed.
+    const checkbox = existingCheckboxCell.querySelector('.transaction-checkbox');
+    const rowId = getOrCreateRowId(row); // Row ID should exist or be created
+    if (checkbox && rowId) {
+        if (typeof window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] !== 'undefined') {
+            checkbox.checked = window.mpacTransactionEnhancerState.rowCheckboxStates[rowId];
+        } else if (!window.mpacTransactionEnhancerState.isInitialProcess) {
+            // If reprocessing and no specific state, use selectAllChecked
+            checkbox.checked = window.mpacTransactionEnhancerState.selectAllChecked;
+            window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] = checkbox.checked;
+        } else {
+            // Initial process, should be true by default
+            checkbox.checked = true;
+            window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] = true;
+        }
+    }
     return;
   }
+  
+  const rowId = getOrCreateRowId(row);
 
   // Create checkbox container
   const checkboxContainer = document.createElement('div');
@@ -98,11 +140,33 @@ function addCheckboxToRow(row, netAmount) {
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
   checkbox.className = 'transaction-checkbox';
-  checkbox.checked = true; // Default to checked as requested
   checkbox.dataset.netAmount = netAmount.toString();
+
+  // Set checked state based on global and individual stored state
+  if (window.mpacTransactionEnhancerState.isInitialProcess) {
+    checkbox.checked = true; // Default to checked on initial run
+    window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] = true;
+  } else {
+    // On re-runs, restore from stored state or default to selectAll if row is new to our tracking
+    checkbox.checked = typeof window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] !== 'undefined'
+      ? window.mpacTransactionEnhancerState.rowCheckboxStates[rowId]
+      : window.mpacTransactionEnhancerState.selectAllChecked;
+    // Ensure state is recorded if it was a fallback (new row during reprocess)
+    if (typeof window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] === 'undefined') {
+        window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] = checkbox.checked;
+    }
+  }
   
   // Add change event listener
-  checkbox.addEventListener('change', updateSum);
+  checkbox.addEventListener('change', function() {
+    window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] = this.checked;
+    updateSum();
+    updateSelectAllHeaderState(); // Update header checkbox state
+  });
+  // Prevent click from bubbling to the row and causing expand/collapse
+  checkbox.addEventListener('click', function(event) {
+    event.stopPropagation();
+  });
   
   checkboxContainer.appendChild(checkbox);
   
@@ -128,22 +192,47 @@ function addCheckboxHeader(headerRow) {
   checkboxHeader.setAttribute('role', 'columnheader');
   checkboxHeader.className = 'css-ud4ddh-HeaderStyles checkbox-header';
   checkboxHeader.style.width = '60px';
-  checkboxHeader.innerHTML = `
-    <div class="header-content">
-      <input type="checkbox" id="select-all-checkbox" checked> 
-      <label for="select-all-checkbox">Select</label>
-    </div>
-  `;
-  
-  // Add select all functionality
-  const selectAllCheckbox = checkboxHeader.querySelector('#select-all-checkbox');
+
+  const headerContent = document.createElement('div');
+  headerContent.className = 'header-content';
+
+  const selectAllCheckbox = document.createElement('input');
+  selectAllCheckbox.type = 'checkbox';
+  selectAllCheckbox.id = 'select-all-checkbox';
+
+  // Restore "Select All" checkbox's own state
+  selectAllCheckbox.checked = window.mpacTransactionEnhancerState.selectAllChecked;
+  // Initial indeterminate state will be set by updateSelectAllHeaderState later if needed
+
   selectAllCheckbox.addEventListener('change', function() {
-    const allCheckboxes = document.querySelectorAll('.transaction-checkbox');
-    allCheckboxes.forEach(cb => {
-      cb.checked = this.checked;
+    const isChecked = this.checked;
+    window.mpacTransactionEnhancerState.selectAllChecked = isChecked;
+    selectAllCheckbox.indeterminate = false; // Explicitly setting it clears indeterminate
+    
+    document.querySelectorAll('[role="row"]').forEach(r => {
+      const cb = r.querySelector('.transaction-checkbox');
+      if (cb) {
+        const rowId = r.dataset.mpacRowId;
+        if (rowId) { // Ensure rowId exists (it should if checkbox exists)
+          window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] = isChecked;
+        }
+        cb.checked = isChecked;
+      }
     });
     updateSum();
   });
+  // Prevent click from bubbling (e.g. if header itself has click handlers)
+  selectAllCheckbox.addEventListener('click', function(event) {
+    event.stopPropagation();
+  });
+
+  const label = document.createElement('label');
+  label.htmlFor = 'select-all-checkbox';
+  label.textContent = 'Select';
+
+  headerContent.appendChild(selectAllCheckbox);
+  headerContent.appendChild(label);
+  checkboxHeader.appendChild(headerContent);
   
   // Append the checkbox header after the last header (Net $ column)
   headerRow.appendChild(checkboxHeader);
@@ -151,6 +240,7 @@ function addCheckboxHeader(headerRow) {
 
 // Process the table
 function processTable() {
+  nextRowIdCounter = 0; // Reset for each full processing run
   const table = document.querySelector('[role="treegrid"]');
   if (!table) return;
   
@@ -188,7 +278,55 @@ function processTable() {
   createSumDisplay();
   
   // Initial sum calculation
+  updateSelectAllHeaderState(); // Set header based on current row states
   updateSum();
+
+
+  // After the first successful processing, mark it as done
+  if (window.mpacTransactionEnhancerState.isInitialProcess && document.getElementById('select-all-checkbox')) {
+    window.mpacTransactionEnhancerState.isInitialProcess = false;
+  }
+}
+
+function updateSelectAllHeaderState() {
+  const selectAllCheckbox = document.getElementById('select-all-checkbox');
+  if (!selectAllCheckbox) return;
+
+  const allRowCheckboxes = document.querySelectorAll('.transaction-checkbox');
+  if (allRowCheckboxes.length === 0) {
+    selectAllCheckbox.checked = window.mpacTransactionEnhancerState.selectAllChecked; // Use stored global default
+    selectAllCheckbox.indeterminate = false;
+    // Ensure global state is consistent if no rows (e.g. true by default)
+    // window.mpacTransactionEnhancerState.selectAllChecked = true; // This line might be redundant if selectAllChecked is already true
+    return;
+  }
+
+  let allChecked = true;
+  let allUnchecked = true;
+
+  allRowCheckboxes.forEach(cb => {
+    if (cb.checked) {
+      allUnchecked = false;
+    } else {
+      allChecked = false;
+    }
+  });
+
+  if (allChecked) {
+    selectAllCheckbox.checked = true;
+    selectAllCheckbox.indeterminate = false;
+    window.mpacTransactionEnhancerState.selectAllChecked = true;
+  } else if (allUnchecked) {
+    selectAllCheckbox.checked = false;
+    selectAllCheckbox.indeterminate = false;
+    window.mpacTransactionEnhancerState.selectAllChecked = false;
+  } else {
+    selectAllCheckbox.checked = false; // Standard for indeterminate state display
+    selectAllCheckbox.indeterminate = true;
+    // selectAllChecked reflects the desired state if user *were* to click it.
+    // If indeterminate, clicking it would check all, so conceptually it's "not all checked".
+    window.mpacTransactionEnhancerState.selectAllChecked = false;
+  }
 }
 
 // Debounce function to prevent excessive processing
@@ -211,6 +349,7 @@ let currentTableObserver = null; // To manage the lifecycle of the table observe
 
 // Set up table content observer
 function setupTableObserver() {
+  nextRowIdCounter = 0; // Reset for each new table observation setup / processTable run
   // Disconnect existing observer if any
   if (currentTableObserver) {
     currentTableObserver.disconnect();
@@ -230,12 +369,19 @@ function setupTableObserver() {
     let shouldReprocess = false;
     
     mutations.forEach((mutation) => {
-      // Check if rows were added, removed, or modified
+      // If the mutation is an attribute change on 'checked' for one of our checkboxes,
+      // ignore it for reprocessing. The checkbox's own 'change' event handles sum updates.
+      if (mutation.type === 'attributes' &&
+          mutation.attributeName === 'checked' &&
+          mutation.target.classList.contains('transaction-checkbox')) {
+        return; // Skip this mutation, don't flag for reprocessing
+      }
+
+      // Original logic for detecting other relevant changes
       if (mutation.type === 'childList') {
         const addedNodes = Array.from(mutation.addedNodes);
         const removedNodes = Array.from(mutation.removedNodes);
         
-        // Check if any rows were added or removed
         const hasRowChanges = addedNodes.some(node =>
           node.nodeType === 1 && (
             node.getAttribute('role') === 'row' ||
@@ -253,7 +399,7 @@ function setupTableObserver() {
         }
       }
       
-      // Check if text content of cells changed (updated amounts)
+      // Check if text content of cells changed (updated amounts) or grid cells structure changed
       if (mutation.type === 'characterData' ||
           (mutation.type === 'childList' && mutation.target.getAttribute('role') === 'gridcell')) {
         shouldReprocess = true;
@@ -270,7 +416,9 @@ function setupTableObserver() {
   currentTableObserver.observe(table, {
     childList: true,
     subtree: true,
-    characterData: true
+    characterData: true,
+    attributes: true, // Need to observe attributes for the 'checked' state
+    attributeFilter: ['checked'] // Only care about 'checked' attribute changes for our specific optimization
   });
 }
 
@@ -327,6 +475,12 @@ async function init() {
 if (location.href.includes('/reporting/transactions')) {
   // Reset retries when starting fresh on a matching URL
   initRetries = 0;
+  // Reset checkbox global state for a fresh page load/navigation to transactions
+  if (window.mpacTransactionEnhancerState) {
+    window.mpacTransactionEnhancerState.selectAllChecked = true;
+    window.mpacTransactionEnhancerState.isInitialProcess = true;
+    window.mpacTransactionEnhancerState.rowCheckboxStates = {}; // Clear stored states
+  }
   init();
 }
 
@@ -364,6 +518,12 @@ new MutationObserver(() => {
       console.log('Transaction Enhancer: Navigated to transactions page, re-initializing.');
       cleanupExistingEnhancements();
       initRetries = 0;
+      // Reset checkbox global state for re-initialization
+      if (window.mpacTransactionEnhancerState) {
+        window.mpacTransactionEnhancerState.selectAllChecked = true;
+        window.mpacTransactionEnhancerState.isInitialProcess = true;
+        window.mpacTransactionEnhancerState.rowCheckboxStates = {}; // Clear stored states
+      }
       initInProgress = false;
       init();
       setTimeout(rewriteEntitlementURLs, 500);
