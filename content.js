@@ -38,6 +38,32 @@ function formatAmount(amount) {
   return `${sign}$${absAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+
+
+// Promisified storage.get with error checking
+function storageGet(keys) {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.get(keys, (result) => {
+            if (chrome.runtime.lastError) {
+                return reject(chrome.runtime.lastError);
+            }
+            resolve(result);
+        });
+    });
+}
+
+// Promisified storage.set with error checking
+function storageSet(items) {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.set(items, () => {
+            if (chrome.runtime.lastError) {
+                return reject(chrome.runtime.lastError);
+            }
+            resolve();
+        });
+    });
+}
+
 // Create and add sum display
 function createSumDisplay() {
   // Remove existing sum display if it exists
@@ -75,7 +101,99 @@ function createSumDisplay() {
   return sumContainer;
 }
 
-function analyzeMaintenancePeriods() {
+// --- Unique ID Generation ---
+function getGapId(gap) {
+    return `gap-${gap.start}-${gap.end}`;
+}
+
+function getLateRefundId(item) {
+    const refundDate = item.refund.saleDate.toISOString().split('T')[0];
+    const originalTxDate = item.originalTx.saleDate.toISOString().split('T')[0];
+    return `late-refund-${refundDate}-${originalTxDate}-${item.refund.periodStr}`;
+}
+
+function getRefundId(refund) {
+    const orderId = refund.orderId || 'unknown-order';
+    return `refund-${orderId}`;
+}
+
+// --- UI Manipulation ---
+function addStatusIndicator(row, status) {
+    // Remove existing indicator first to prevent duplicates
+    const existingIndicator = row.querySelector('.status-indicator');
+    if (existingIndicator) {
+        existingIndicator.remove();
+    }
+
+    if (!status) return;
+
+    const indicator = document.createElement('span');
+    indicator.className = 'status-indicator';
+    
+    if (status === 'ok') {
+        indicator.textContent = '✅';
+        indicator.title = 'Refund analyzed and appears correct.';
+        indicator.style.marginLeft = '8px';
+        indicator.style.cursor = 'default';
+    }
+    console.log(`Adding status indicator '${status}' to row:`, row);
+
+    // Inject into the first cell, after the expand button if it exists
+    const firstCell = row.querySelector('div[role="gridcell"]:first-child');
+    if (firstCell) {
+        firstCell.style.display = 'flex';
+        firstCell.style.alignItems = 'center';
+        const expandButton = firstCell.querySelector('button.css-lpuias');
+        if (expandButton) {
+            expandButton.insertAdjacentElement('afterend', indicator);
+        } else {
+            firstCell.appendChild(indicator);
+        }
+    }
+}
+
+async function applyProcessedVisuals() {
+    console.log("applyProcessedVisuals: Running...");
+    const storageKey = 'processedRefundOrderIds';
+    const data = await storageGet(storageKey);
+    const processedOrderIds = new Set(data[storageKey] || []);
+
+    if (processedOrderIds.size === 0) {
+        console.log("applyProcessedVisuals: No processed Order IDs found in storage.");
+        return;
+    }
+    
+    console.log(`applyProcessedVisuals: Found ${processedOrderIds.size} processed Order IDs in storage.`, processedOrderIds);
+
+    const transactionRows = document.querySelectorAll('div[role="row"]');
+    console.log(`applyProcessedVisuals: Found ${transactionRows.length} transaction rows on the page.`);
+
+    transactionRows.forEach(row => {
+        const orderIdElement = row.querySelector('div.css-1dzhcs > div:nth-child(2) > span > span');
+        if (orderIdElement) {
+            const orderId = orderIdElement.textContent.trim();
+            if (processedOrderIds.has(orderId)) {
+                console.log(`applyProcessedVisuals: Found matching Order ID ${orderId}. Applying visual.`);
+                addStatusIndicator(row, 'ok');
+            }
+        }
+    });
+    console.log("applyProcessedVisuals: Finished.");
+}
+
+async function analyzeMaintenancePeriods() {
+    const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
+    const aen = aenElement ? aenElement.textContent.trim() : null;
+    if (!aen) {
+        console.log("AEN not found, can't check for existing tickets.");
+        // Continue without ticket status if AEN isn't on the page
+    }
+
+    // Fetch existing ticket data
+    const ticketedItemsStorageKey = `ticketedItems_${aen}`;
+    const storedData = aen ? (await storageGet(ticketedItemsStorageKey))[ticketedItemsStorageKey] : null;
+    const ticketedIds = new Set(storedData || []);
+
     const transactions = [];
     const transactionRows = document.querySelectorAll('div[data-mpac-row-id]');
 
@@ -87,8 +205,14 @@ function analyzeMaintenancePeriods() {
 
         const saleTypeCell = row.querySelector('div[role="gridcell"]:nth-child(5)');
         const saleType = saleTypeCell ? saleTypeCell.textContent.trim().toLowerCase() : 'unknown';
+        
+        const orderIdElement = row.querySelector('div.css-1dzhcs > div:nth-child(2) > span > span');
+        const orderId = orderIdElement ? orderIdElement.textContent.trim() : null;
+        if (!orderId) {
+            console.log("analyzeMaintenancePeriods: Could not find Order ID for row:", row);
+        }
 
-        const detailsMain = row.nextElementSibling.querySelector('main.css-1gxi3n2-Main');
+        const detailsMain = row.nextElementSibling?.querySelector('main.css-1gxi3n2-Main');
         if (detailsMain) {
             const detailPairs = detailsMain.querySelectorAll('.css-1bh2dbg-EachPair');
             let maintenancePeriodText = null;
@@ -105,7 +229,7 @@ function analyzeMaintenancePeriods() {
                     const startDate = new Date(`${startDateStr}T00:00:00Z`);
                     const endDate = new Date(`${endDateStr}T00:00:00Z`);
                     if (!isNaN(startDate) && !isNaN(endDate) && saleDate && !isNaN(saleDate)) {
-                        transactions.push({ saleDate, startDate, endDate, saleType, periodStr: maintenancePeriodText });
+                        transactions.push({ row, saleDate, startDate, endDate, saleType, periodStr: maintenancePeriodText, orderId });
                     }
                 }
             }
@@ -219,7 +343,9 @@ function analyzeMaintenancePeriods() {
     if (gaps.length > 0) {
         html += '<h3>Maintenance Gaps Found:</h3><ul>';
         gaps.forEach(gap => {
-            html += `<li>Gap from ${gap.start} to ${gap.end} (${gap.days} days)</li>`;
+            const gapId = getGapId(gap);
+            const isTicketed = ticketedIds.has(gapId);
+            html += `<li>Gap from ${gap.start} to ${gap.end} (${gap.days} days) ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
         });
         html += '</ul>';
     } else {
@@ -229,7 +355,9 @@ function analyzeMaintenancePeriods() {
     if (lateRefunds.length > 0) {
         html += '<h3>Late Refunds (> 30 days):</h3><ul>';
         lateRefunds.forEach(item => {
-            html += `<li>Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr}</li>`;
+            const refundId = getLateRefundId(item);
+            const isTicketed = ticketedIds.has(refundId);
+            html += `<li>Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr} ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
         });
         html += '</ul>';
     }
@@ -239,9 +367,28 @@ function analyzeMaintenancePeriods() {
     } else {
         resultsContainer.innerHTML = html;
     }
+
+    // --- Refund Status Analysis & UI Update ---
+    const processedRefundsStorageKey = 'processedRefundOrderIds';
+    const data = await storageGet(processedRefundsStorageKey);
+    const processedOrderIds = new Set(data[processedRefundsStorageKey] || []);
+
+    console.log(`analyzeMaintenancePeriods: Found ${refunds.length} refunds in the current view.`);
+    // Mark ALL refunds in the current analysis scope as processed.
+    refunds.forEach(refund => {
+        if (refund.orderId) {
+            processedOrderIds.add(refund.orderId);
+        }
+    });
+
+    console.log(`analyzeMaintenancePeriods: Storing ${processedOrderIds.size} total processed Order IDs.`, [...processedOrderIds]);
+    await storageSet({ [processedRefundsStorageKey]: [...processedOrderIds] });
+    
+    // Apply visuals immediately after analysis
+    await applyProcessedVisuals();
 }
 
-function fileSupportTicket() {
+async function fileSupportTicket() {
   const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
   const aen = aenElement ? aenElement.textContent.trim() : '';
 
@@ -259,38 +406,70 @@ function fileSupportTicket() {
   }
 
   const { gaps, lateRefunds } = analysisData;
+  const ticketedItemsStorageKey = `ticketedItems_${aen}`;
+  
+  try {
+    const storedData = (await storageGet(ticketedItemsStorageKey))[ticketedItemsStorageKey];
+    const ticketedIds = new Set(storedData || []);
 
-  let description = `Context:\n- App Entitlement Number (AEN): ${aen}\n\n`;
+    const newGaps = gaps.filter(gap => !ticketedIds.has(getGapId(gap)));
+    const newLateRefunds = lateRefunds.filter(item => !ticketedIds.has(getLateRefundId(item)));
 
-  if (gaps.length > 0) {
-    description += 'Maintenance Gaps Found:\n';
-    description += '-----------------\n';
-    gaps.forEach(gap => {
-      description += `Gap from ${gap.start} to ${gap.end} (${gap.days} days)\n`;
-    });
-    description += '-----------------\n';
-    description += 'Please explain why the customer got our application for free during this period\n\n';
-  }
+    if (newGaps.length === 0 && newLateRefunds.length === 0) {
+      alert('No new issues found to file a ticket for.');
+      return;
+    }
 
-  if (lateRefunds.length > 0) {
-    description += 'Late Refunds (> 30 days):\n';
-    description += '-----------------\n';
-    lateRefunds.forEach(item => {
-      description += `Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr}\n`;
-    });
-    description += '-----------------\n';
-    description += 'Please explain why this customer received refunds outside of the 30 day period without first getting approval from us.\n\n';
-  }
+    let description = `Context:\n- App Entitlement Number (AEN): ${aen}\n\n`;
+    const newTicketedIds = [];
 
-  const supportData = {
-    aen: aen,
-    summary: `Review required for AEN: ${aen}`,
-    description: description.trim()
-  };
+    if (newGaps.length > 0) {
+      description += 'New Maintenance Gaps Found:\n';
+      description += '-----------------\n';
+      newGaps.forEach(gap => {
+        description += `Gap from ${gap.start} to ${gap.end} (${gap.days} days)\n`;
+        newTicketedIds.push(getGapId(gap));
+      });
+      description += '-----------------\n';
+      description += 'Please explain why the customer got our application for free during this period\n\n';
+    }
 
-  chrome.storage.local.set({ supportTicketData: supportData }, () => {
+    if (newLateRefunds.length > 0) {
+      description += 'New Late Refunds (> 30 days):\n';
+      description += '-----------------\n';
+      newLateRefunds.forEach(item => {
+        description += `Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr}\n`;
+        newTicketedIds.push(getLateRefundId(item));
+      });
+      description += '-----------------\n';
+      description += 'Please explain why this customer received refunds outside of the 30 day period without first getting approval from us.\n\n';
+    }
+
+    const supportData = {
+      aen: aen,
+      summary: `Review required for AEN: ${aen}`,
+      description: description.trim()
+    };
+
+    // Set data for the support page to read
+    await storageSet({ supportTicketData: supportData });
+    
+    // Open the support page
     window.open('https://support.atlassian.com/contact/#/', '_blank');
-  });
+
+    // Update the list of ticketed items
+    const updatedTicketedIds = [...ticketedIds, ...newTicketedIds];
+    await storageSet({ [ticketedItemsStorageKey]: updatedTicketedIds });
+    
+    console.log('Updated ticketed items for AEN:', aen);
+
+    // Re-run analysis to update the UI with the new "(Ticketed)" status
+    await analyzeMaintenancePeriods();
+
+  } catch (error) {
+    console.error("Error during fileSupportTicket:", error);
+    alert("An error occurred while filing the support ticket. Check the console for details.");
+  }
 }
 
 // Update the sum display
@@ -523,12 +702,12 @@ async function processAll() {
   await new Promise(resolve => setTimeout(resolve, 2000));
 
   // 2. Run analysis
-  analyzeMaintenancePeriods();
+  await analyzeMaintenancePeriods();
 
   // 3. File support ticket if needed
   const analysisData = window.mpacTransactionEnhancerState.analysisData;
   if (analysisData && (analysisData.gaps.length > 0 || analysisData.lateRefunds.length > 0)) {
-    fileSupportTicket();
+    await fileSupportTicket();
   } else {
     console.log('No issues found, skipping support ticket creation.');
     alert('Analysis complete. No maintenance gaps or late refunds found.');
@@ -652,6 +831,9 @@ function processTable() {
 
   // Rewrite URLs every time the table is processed
   addTransactionLinks();
+
+  applyProcessedVisuals();
+
 
   // After the first successful processing, mark it as done
   if (window.mpacTransactionEnhancerState.isInitialProcess && document.getElementById('select-all-checkbox')) {

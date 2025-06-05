@@ -9,9 +9,8 @@ A Chrome extension that enhances the Atlassian Marketplace vendor reporting page
 - ✅ **Running total calculation** - Displays the sum of Net $ amounts for checked rows
 - ✅ **Select All functionality** - Master checkbox in the header to select/deselect all rows
 - ✅ **Real-time updates** - Sum updates automatically as you check/uncheck boxes
-- ✅ **Maintenance Period Analysis** - Analyzes maintenance periods to find gaps in coverage and flags refunds that occur more than 30 days after the initial transaction.
-- ✅ **Expand/Collapse All** - A button to expand or collapse all transaction rows at once.
-- ✅ **File Support Ticket** - Pre-fills an Atlassian support ticket with details about maintenance gaps and late refunds.
+- ✅ **Process Button with Dropdown** - A primary "Process" button that expands all rows, runs an analysis, and files a support ticket if issues are found. A dropdown menu provides individual access to each of these actions.
+- ✅ **Duplicate Ticket Prevention** - The extension now tracks which issues have already been ticketed and prevents the creation of duplicate support tickets. The UI indicates which items have been ticketed.
 - ✅ **Entitlement URL rewriting** - Automatically rewrites entitlement URLs from licenses to transactions pages
 - ✅ **Responsive design** - Works on desktop and mobile layouts
 - ✅ **Accessibility support** - Proper ARIA labels and keyboard navigation
@@ -165,6 +164,7 @@ This extension is provided as-is for demonstration purposes. Feel free to modify
 
 ## Version History
 
+- **v1.7** - Replaced individual action buttons with a "Process" button and dropdown menu. Added duplicate ticket prevention to avoid filing multiple tickets for the same issue.
 - **v1.6** - Added a "File Support Ticket" button to automate the creation of support tickets for maintenance gaps and late refunds.
 - **v1.5** - (Internal release) Added support ticket filing functionality.
 - **v1.4** - (Internal release) Added expand/collapse all button.
