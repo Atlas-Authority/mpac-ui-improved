@@ -207,13 +207,26 @@ function debounce(func, wait) {
 // Create debounced version of processTable
 const debouncedProcessTable = debounce(processTable, 300);
 
+let currentTableObserver = null; // To manage the lifecycle of the table observer
+
 // Set up table content observer
 function setupTableObserver() {
-  const table = document.querySelector('[role="treegrid"]');
-  if (!table) return;
+  // Disconnect existing observer if any
+  if (currentTableObserver) {
+    currentTableObserver.disconnect();
+    currentTableObserver = null;
+    console.log('Transaction Enhancer: Disconnected old table observer.');
+  }
 
+  const table = document.querySelector('[role="treegrid"]');
+  if (!table) {
+    console.log('Transaction Enhancer: Table not found for setting up observer.');
+    return;
+  }
+
+  console.log('Transaction Enhancer: Setting up new table observer.');
   // Observer for table content changes
-  const tableObserver = new MutationObserver((mutations) => {
+  currentTableObserver = new MutationObserver((mutations) => {
     let shouldReprocess = false;
     
     mutations.forEach((mutation) => {
@@ -223,14 +236,14 @@ function setupTableObserver() {
         const removedNodes = Array.from(mutation.removedNodes);
         
         // Check if any rows were added or removed
-        const hasRowChanges = addedNodes.some(node => 
+        const hasRowChanges = addedNodes.some(node =>
           node.nodeType === 1 && (
-            node.getAttribute('role') === 'row' || 
+            node.getAttribute('role') === 'row' ||
             node.querySelector && node.querySelector('[role="row"]')
           )
-        ) || removedNodes.some(node => 
+        ) || removedNodes.some(node =>
           node.nodeType === 1 && (
-            node.getAttribute('role') === 'row' || 
+            node.getAttribute('role') === 'row' ||
             node.querySelector && node.querySelector('[role="row"]')
           )
         );
@@ -241,38 +254,34 @@ function setupTableObserver() {
       }
       
       // Check if text content of cells changed (updated amounts)
-      if (mutation.type === 'characterData' || 
+      if (mutation.type === 'characterData' ||
           (mutation.type === 'childList' && mutation.target.getAttribute('role') === 'gridcell')) {
         shouldReprocess = true;
       }
     });
     
     if (shouldReprocess) {
-      console.log('Table content changed, reprocessing...');
+      console.log('Transaction Enhancer: Table content changed, reprocessing...');
       debouncedProcessTable();
     }
   });
 
   // Observe the table for changes
-  tableObserver.observe(table, {
+  currentTableObserver.observe(table, {
     childList: true,
     subtree: true,
     characterData: true
   });
-
-  return tableObserver;
 }
 
 // Initialize the extension
 async function init() {
+  console.log('Transaction Enhancer: init() called. Current URL:', location.href);
   try {
-    await waitForTable();
-    
-    // Give a small delay for React to finish rendering
-    setTimeout(() => {
-      processTable();
-      setupTableObserver();
-    }, 500);
+    await waitForTable(); // waitForTable already ensures the table is ready
+    console.log('Transaction Enhancer: Table ready, proceeding with processTable and setupTableObserver.');
+    processTable();
+    setupTableObserver();
     
   } catch (error) {
     console.error('Transaction Enhancer Error:', error);
@@ -280,7 +289,32 @@ async function init() {
 }
 
 // Start the extension
-init();
+// Initial init call will run if the page matches the content script pattern directly.
+if (location.href.includes('/reporting/transactions')) {
+  init();
+}
+
+
+// Function to rewrite entitlement URLs from licenses to transactions
+function rewriteEntitlementURLs() {
+  // Only run URL rewriting on transactions pages
+  if (!location.href.includes('/reporting/transactions')) {
+    return;
+  }
+
+  // Find all links that match the entitlement pattern and point to licenses
+  const entitlementLinks = document.querySelectorAll('a[href*="marketplace.atlassian.com/manage/vendors"][href*="/reporting/licenses"][href*="text=E-"]');
+  
+  entitlementLinks.forEach(link => {
+    const href = link.getAttribute('href');
+    if (href && href.includes('/reporting/licenses') && href.includes('text=E-')) {
+      // Replace 'licenses' with 'transactions' in the URL
+      const newHref = href.replace('/reporting/licenses', '/reporting/transactions');
+      link.setAttribute('href', newHref);
+      console.log('Rewritten entitlement URL:', href, '->', newHref);
+    }
+  });
+}
 
 // Watch for page changes (in case of SPA navigation)
 let lastUrl = location.href;
@@ -288,10 +322,61 @@ new MutationObserver(() => {
   const url = location.href;
   if (url !== lastUrl) {
     lastUrl = url;
+    console.log('Transaction Enhancer: URL changed from', lastUrl, 'to', url);
     if (url.includes('/reporting/transactions')) {
-      // Clear any existing sum display before re-initializing
+      console.log('Transaction Enhancer: Navigated to transactions page, re-initializing.');
+      // Clear any existing sum display and enhancements before re-initializing
       cleanupExistingEnhancements();
-      setTimeout(init, 1000);
+      init(); // Call init directly, waitForTable will handle readiness
+      // Also run URL rewriting on transactions page changes
+      setTimeout(rewriteEntitlementURLs, 500); // This can keep its delay or be integrated if needed
+    } else {
+      console.log('Transaction Enhancer: Navigated away from transactions page, cleaning up.');
+      cleanupExistingEnhancements();
+      if (currentTableObserver) {
+        currentTableObserver.disconnect();
+        currentTableObserver = null;
+        console.log('Transaction Enhancer: Disconnected table observer.');
+      }
     }
   }
-}).observe(document, { subtree: true, childList: true }); 
+}).observe(document, { subtree: true, childList: true });
+
+// Run URL rewriting when the page loads
+setTimeout(rewriteEntitlementURLs, 1000);
+
+// Set up a mutation observer to catch dynamically added content (like expandable rows)
+const urlRewriteObserver = new MutationObserver((mutations) => {
+  let shouldRewrite = false;
+  
+  mutations.forEach((mutation) => {
+    if (mutation.type === 'childList') {
+      const addedNodes = Array.from(mutation.addedNodes);
+      
+      // Check if any added nodes contain links that might need rewriting
+      const hasRelevantLinks = addedNodes.some(node => 
+        node.nodeType === 1 && (
+          node.querySelector && (
+            node.querySelector('a[href*="/reporting/licenses"]') ||
+            node.matches && node.matches('a[href*="/reporting/licenses"]')
+          )
+        )
+      );
+      
+      if (hasRelevantLinks) {
+        shouldRewrite = true;
+      }
+    }
+  });
+  
+  if (shouldRewrite) {
+    console.log('New content detected, checking for entitlement URLs to rewrite...');
+    setTimeout(rewriteEntitlementURLs, 100);
+  }
+});
+
+// Observe the entire document for changes
+urlRewriteObserver.observe(document, {
+  childList: true,
+  subtree: true
+}); 

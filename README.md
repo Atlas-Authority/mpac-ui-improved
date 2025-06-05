@@ -1,6 +1,6 @@
 # Atlassian Marketplace Transaction Enhancer
 
-A Chrome extension that enhances the Atlassian Marketplace vendor transaction reporting page by adding checkboxes to each row and calculating the sum of selected Net $ amounts.
+A Chrome extension that enhances the Atlassian Marketplace vendor reporting pages by adding checkboxes to transaction rows, calculating sums, and rewriting entitlement URLs.
 
 ## Features
 
@@ -9,6 +9,7 @@ A Chrome extension that enhances the Atlassian Marketplace vendor transaction re
 - ✅ **Running total calculation** - Displays the sum of Net $ amounts for checked rows
 - ✅ **Select All functionality** - Master checkbox in the header to select/deselect all rows
 - ✅ **Real-time updates** - Sum updates automatically as you check/uncheck boxes
+- ✅ **Entitlement URL rewriting** - Automatically rewrites entitlement URLs from licenses to transactions pages
 - ✅ **Responsive design** - Works on desktop and mobile layouts
 - ✅ **Accessibility support** - Proper ARIA labels and keyboard navigation
 
@@ -67,6 +68,16 @@ Examples:
 - `https://marketplace.atlassian.com/manage/vendors/1212980/reporting/transactions`
 - `https://marketplace.atlassian.com/manage/vendors/1212980/reporting/transactions?text=search-term`
 
+## URL Rewriting Feature
+
+The extension automatically detects and rewrites entitlement URLs that appear when expanding transaction details **only on the transactions page**:
+
+**Before:** `https://marketplace.atlassian.com/manage/vendors/1212980/reporting/licenses?text=E-43C-SM9-48S-UTA`
+
+**After:** `https://marketplace.atlassian.com/manage/vendors/1212980/reporting/transactions?text=E-43C-SM9-48S-UTA`
+
+This ensures that clicking on entitlement numbers takes you to the transactions page instead of the licenses page, providing a more consistent workflow for tracking transaction details. The URL rewriting only occurs when you are viewing the transactions page.
+
 ## Technical Details
 
 ### Files Structure
@@ -89,8 +100,10 @@ mpac-ui-chrome-extension/
    - Adds a new column with checkboxes to each row
    - Parses Net $ amounts and stores them as data attributes
    - Creates a sum display component
-4. **Event Handling**: Listens for checkbox changes and updates the total
-5. **SPA Navigation**: Monitors URL changes to re-initialize on page transitions
+4. **URL Rewriting**: Automatically detects and rewrites entitlement URLs from licenses to transactions (only on transactions pages)
+5. **Event Handling**: Listens for checkbox changes and updates the total
+6. **SPA Navigation**: Monitors URL changes to re-initialize on page transitions
+7. **Dynamic Content Monitoring**: Watches for new content (like expanded rows) to apply URL rewriting
 
 ### Amount Parsing
 
@@ -149,4 +162,5 @@ This extension is provided as-is for demonstration purposes. Feel free to modify
 
 ## Version History
 
-- **v1.0** - Initial release with basic checkbox and sum functionality 
+- **v1.1** - Added entitlement URL rewriting functionality
+- **v1.0** - Initial release with basic checkbox and sum functionality
