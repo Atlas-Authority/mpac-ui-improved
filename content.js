@@ -281,6 +281,8 @@ function processTable() {
   updateSelectAllHeaderState(); // Set header based on current row states
   updateSum();
 
+  // Rewrite URLs every time the table is processed
+  addTransactionLinks();
 
   // After the first successful processing, mark it as done
   if (window.mpacTransactionEnhancerState.isInitialProcess && document.getElementById('select-all-checkbox')) {
@@ -485,24 +487,42 @@ if (location.href.includes('/reporting/transactions')) {
 }
 
 
-// Function to rewrite entitlement URLs from licenses to transactions
-function rewriteEntitlementURLs() {
-  // Only run URL rewriting on transactions pages
-  if (!location.href.includes('/reporting/transactions')) {
-    return;
-  }
+// Function to add a direct link to transactions for an App Entitlement Number (AEN)
+function addTransactionLinks() {
+  // Find all "App entitlement number" divs
+  const appEntitlementDivs = document.querySelectorAll('[data-testid="app-entitlement-number"]');
 
-  // Find all links that match the entitlement pattern and point to licenses
-  const entitlementLinks = document.querySelectorAll('a[href*="marketplace.atlassian.com/manage/vendors"][href*="/reporting/licenses"][href*="text=E-"]');
-  
-  entitlementLinks.forEach(link => {
-    const href = link.getAttribute('href');
-    if (href && href.includes('/reporting/licenses') && href.includes('text=E-')) {
-      // Replace 'licenses' with 'transactions' in the URL
-      const newHref = href.replace('/reporting/licenses', '/reporting/transactions');
-      link.setAttribute('href', newHref);
-      console.log('Rewritten entitlement URL:', href, '->', newHref);
+  appEntitlementDivs.forEach(div => {
+    // Check if we've already added our link for this div
+    const parent = div.parentNode;
+    if (parent.querySelector('[data-testid="aen-transactions-link"]')) {
+      return; // Link already exists, do nothing
     }
+
+    const originalLink = div.querySelector('a[href*="/reporting/licenses"]');
+    if (!originalLink) {
+      return; // No original link found to base our new link on
+    }
+
+    const originalHref = originalLink.getAttribute('href');
+    const linkText = originalLink.textContent;
+
+    // Create the new href for the transactions page
+    const newHref = originalHref.replace('/reporting/licenses', '/reporting/transactions');
+
+    // Create the new element to inject
+    const newLinkDiv = document.createElement('div');
+    newLinkDiv.className = 'css-1bh2dbg-EachPair e94bvxz2'; // Match styling of other pairs
+    newLinkDiv.setAttribute('data-testid', 'aen-transactions-link');
+    
+    newLinkDiv.innerHTML = `
+      <p>AEN Transactions Link</p>
+      <p><a href="${newHref}">${linkText}</a></p>
+    `;
+
+    // Insert the new div right after the original "App entitlement number" div
+    div.parentNode.insertBefore(newLinkDiv, div.nextSibling);
+    console.log('Added AEN transaction link for:', linkText);
   });
 }
 
@@ -526,7 +546,6 @@ new MutationObserver(() => {
       }
       initInProgress = false;
       init();
-      setTimeout(rewriteEntitlementURLs, 500);
     } else {
       console.log('Transaction Enhancer: Navigated away from transactions page, cleaning up.');
       cleanupExistingEnhancements();
@@ -541,41 +560,6 @@ new MutationObserver(() => {
   }
 }).observe(document, { subtree: true, childList: true });
 
-// Run URL rewriting when the page loads
-setTimeout(rewriteEntitlementURLs, 1000);
-
-// Set up a mutation observer to catch dynamically added content (like expandable rows)
-const urlRewriteObserver = new MutationObserver((mutations) => {
-  let shouldRewrite = false;
-  
-  mutations.forEach((mutation) => {
-    if (mutation.type === 'childList') {
-      const addedNodes = Array.from(mutation.addedNodes);
-      
-      // Check if any added nodes contain links that might need rewriting
-      const hasRelevantLinks = addedNodes.some(node => 
-        node.nodeType === 1 && (
-          node.querySelector && (
-            node.querySelector('a[href*="/reporting/licenses"]') ||
-            node.matches && node.matches('a[href*="/reporting/licenses"]')
-          )
-        )
-      );
-      
-      if (hasRelevantLinks) {
-        shouldRewrite = true;
-      }
-    }
-  });
-  
-  if (shouldRewrite) {
-    console.log('New content detected, checking for entitlement URLs to rewrite...');
-    setTimeout(rewriteEntitlementURLs, 100);
-  }
-});
-
-// Observe the entire document for changes
-urlRewriteObserver.observe(document, {
-  childList: true,
-  subtree: true
-}); 
+// The URL rewriting is now handled within processTable, which is triggered
+// on initial load and on any table changes. This avoids the need for
+// a separate observer or timeouts for URL rewriting.
