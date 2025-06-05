@@ -4,7 +4,8 @@ if (typeof window.mpacTransactionEnhancerState === 'undefined') {
     selectAllChecked: true, // Initial default
     isInitialProcess: true,  // Flag for first-time processing
     rowCheckboxStates: {}, // Stores individual row checkbox states { rowId: boolean }
-    analysisData: null
+    analysisData: null,
+    isAutomatedJob: false
   };
 }
 
@@ -20,6 +21,23 @@ function waitForTable() {
       }
     };
     checkForTable();
+  });
+}
+
+// Wait for data rows to appear in the table
+function waitForRows() {
+  return new Promise((resolve) => {
+    const checkForRows = () => {
+      const rowGroup = document.querySelector('[role="rowgroup"]');
+      const rows = rowGroup ? rowGroup.querySelectorAll('[role="row"]') : null;
+      if (rows && rows.length > 0) {
+        console.log(`Found ${rows.length} data rows.`);
+        resolve(rows);
+      } else {
+        setTimeout(checkForRows, 100);
+      }
+    };
+    checkForRows();
   });
 }
 
@@ -85,6 +103,7 @@ function createSumDisplay() {
             <a href="#" id="expand-collapse-all-dropdown">Expand/Collapse All</a>
             <a href="#" id="analyze-button-dropdown">Analyze Maintenance Periods</a>
             <a href="#" id="file-support-ticket-button-dropdown">File Support Ticket</a>
+            <a href="#" id="reset-processing-state-dropdown">Reset Processing State</a>
           </div>
         </div>
       </div>
@@ -143,7 +162,7 @@ function addStatusIndicator(row, status) {
     if (firstCell) {
         firstCell.style.display = 'flex';
         firstCell.style.alignItems = 'center';
-        const expandButton = firstCell.querySelector('button.css-lpuias');
+        const expandButton = firstCell.querySelector('button');
         if (expandButton) {
             expandButton.insertAdjacentElement('afterend', indicator);
         } else {
@@ -182,8 +201,12 @@ async function applyProcessedVisuals() {
 }
 
 async function analyzeMaintenancePeriods() {
+    console.log("analyzeMaintenancePeriods: Starting analysis...");
+    
     const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
     const aen = aenElement ? aenElement.textContent.trim() : null;
+    console.log(`analyzeMaintenancePeriods: Found AEN: ${aen}`);
+    
     if (!aen) {
         console.log("AEN not found, can't check for existing tickets.");
         // Continue without ticket status if AEN isn't on the page
@@ -195,46 +218,85 @@ async function analyzeMaintenancePeriods() {
     const ticketedIds = new Set(storedData || []);
 
     const transactions = [];
-    const transactionRows = document.querySelectorAll('div[data-mpac-row-id]');
+    // Try both custom attribute and fallback to all rows in rowgroup
+    let transactionRows = document.querySelectorAll('div[data-mpac-row-id]');
+    
+    // If no custom rows found, look for all rows in the rowgroup (automated processing case)
+    if (transactionRows.length === 0) {
+        console.log("analyzeMaintenancePeriods: No rows with custom attributes found, looking for all rows");
+        const rowGroup = document.querySelector('[role="rowgroup"]');
+        if (rowGroup) {
+            transactionRows = rowGroup.querySelectorAll('[role="row"]');
+            console.log(`analyzeMaintenancePeriods: Found ${transactionRows.length} rows in rowgroup`);
+        }
+    } else {
+        console.log(`analyzeMaintenancePeriods: Found ${transactionRows.length} rows with custom attributes`);
+    }
 
-    transactionRows.forEach(row => {
+    transactionRows.forEach((row, index) => {
+        console.log(`analyzeMaintenancePeriods: Processing row ${index + 1}`);
+        
         const saleDateCell = row.querySelector('div[role="gridcell"]:nth-child(1)');
         const dateMatch = saleDateCell ? saleDateCell.textContent.match(/\d{4}-\d{2}-\d{2}/) : null;
         const saleDateText = dateMatch ? dateMatch[0] : null;
         const saleDate = saleDateText ? new Date(`${saleDateText}T00:00:00Z`) : null;
+        console.log(`analyzeMaintenancePeriods: Row ${index + 1} sale date: ${saleDateText}`);
 
         const saleTypeCell = row.querySelector('div[role="gridcell"]:nth-child(5)');
         const saleType = saleTypeCell ? saleTypeCell.textContent.trim().toLowerCase() : 'unknown';
+        console.log(`analyzeMaintenancePeriods: Row ${index + 1} sale type: ${saleType}`);
         
         const orderIdElement = row.querySelector('div.css-1dzhcs > div:nth-child(2) > span > span');
         const orderId = orderIdElement ? orderIdElement.textContent.trim() : null;
         if (!orderId) {
-            console.log("analyzeMaintenancePeriods: Could not find Order ID for row:", row);
+            console.log(`analyzeMaintenancePeriods: Could not find Order ID for row ${index + 1}:`, row);
+        } else {
+            console.log(`analyzeMaintenancePeriods: Row ${index + 1} order ID: ${orderId}`);
         }
 
         const detailsMain = row.nextElementSibling?.querySelector('main.css-1gxi3n2-Main');
         if (detailsMain) {
+            console.log(`analyzeMaintenancePeriods: Row ${index + 1} has details section`);
             const detailPairs = detailsMain.querySelectorAll('.css-1bh2dbg-EachPair');
+            console.log(`analyzeMaintenancePeriods: Row ${index + 1} has ${detailPairs.length} detail pairs`);
+            
             let maintenancePeriodText = null;
-            detailPairs.forEach(pair => {
+            detailPairs.forEach((pair, pairIndex) => {
                 const pElements = pair.getElementsByTagName('p');
-                if (pElements.length > 1 && pElements[0].textContent.trim() === 'Maintenance period') {
-                    maintenancePeriodText = pElements[1].textContent.trim();
+                if (pElements.length > 1) {
+                    const label = pElements[0].textContent.trim();
+                    const value = pElements[1].textContent.trim();
+                    console.log(`analyzeMaintenancePeriods: Row ${index + 1} pair ${pairIndex + 1}: "${label}" = "${value}"`);
+                    if (label === 'Maintenance period') {
+                        maintenancePeriodText = value;
+                    }
                 }
             });
 
             if (maintenancePeriodText) {
+                console.log(`analyzeMaintenancePeriods: Row ${index + 1} maintenance period: ${maintenancePeriodText}`);
                 const [startDateStr, endDateStr] = maintenancePeriodText.split(' to ');
                 if (startDateStr && endDateStr) {
                     const startDate = new Date(`${startDateStr}T00:00:00Z`);
                     const endDate = new Date(`${endDateStr}T00:00:00Z`);
                     if (!isNaN(startDate) && !isNaN(endDate) && saleDate && !isNaN(saleDate)) {
                         transactions.push({ row, saleDate, startDate, endDate, saleType, periodStr: maintenancePeriodText, orderId });
+                        console.log(`analyzeMaintenancePeriods: Added transaction for row ${index + 1}`);
+                    } else {
+                        console.log(`analyzeMaintenancePeriods: Row ${index + 1} has invalid dates`);
                     }
+                } else {
+                    console.log(`analyzeMaintenancePeriods: Row ${index + 1} maintenance period format invalid`);
                 }
+            } else {
+                console.log(`analyzeMaintenancePeriods: Row ${index + 1} has no maintenance period`);
             }
+        } else {
+            console.log(`analyzeMaintenancePeriods: Row ${index + 1} has no details section`);
         }
     });
+
+    console.log(`analyzeMaintenancePeriods: Processed ${transactions.length} valid transactions`);
 
     const renewals = transactions.filter(t => t.saleType !== 'refund');
     const refunds = transactions.filter(t => t.saleType === 'refund');
@@ -337,35 +399,45 @@ async function analyzeMaintenancePeriods() {
     };
 
     // --- Display Results ---
-    const resultsContainer = document.getElementById('gap-analysis-results');
-    let html = '';
+    // This logic is now self-contained and defensive.
+    const displayContainer = document.getElementById('transaction-sum-container');
+    if (displayContainer) {
+        let resultsContainer = document.getElementById('gap-analysis-results');
+        if (!resultsContainer) {
+            resultsContainer = document.createElement('div');
+            resultsContainer.id = 'gap-analysis-results';
+            resultsContainer.style.marginTop = '10px';
+            displayContainer.appendChild(resultsContainer);
+        }
 
-    if (gaps.length > 0) {
-        html += '<h3>Maintenance Gaps Found:</h3><ul>';
-        gaps.forEach(gap => {
-            const gapId = getGapId(gap);
-            const isTicketed = ticketedIds.has(gapId);
-            html += `<li>Gap from ${gap.start} to ${gap.end} (${gap.days} days) ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
-        });
-        html += '</ul>';
+        let html = '';
+        if (gaps.length > 0) {
+            html += '<h3>Maintenance Gaps Found:</h3><ul>';
+            gaps.forEach(gap => {
+                const gapId = getGapId(gap);
+                const isTicketed = ticketedIds.has(gapId);
+                html += `<li>Gap from ${gap.start} to ${gap.end} (${gap.days} days) ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
+            });
+            html += '</ul>';
+        }
+
+        if (lateRefunds.length > 0) {
+            html += '<h3>Late Refunds (> 30 days):</h3><ul>';
+            lateRefunds.forEach(item => {
+                const refundId = getLateRefundId(item);
+                const isTicketed = ticketedIds.has(refundId);
+                html += `<li>Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr} ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
+            });
+            html += '</ul>';
+        }
+
+        if (html === '') {
+            resultsContainer.innerHTML = '<p>No maintenance gaps or late refunds found.</p>';
+        } else {
+            resultsContainer.innerHTML = html;
+        }
     } else {
-        html += '<p>No maintenance gaps found.</p>';
-    }
-
-    if (lateRefunds.length > 0) {
-        html += '<h3>Late Refunds (> 30 days):</h3><ul>';
-        lateRefunds.forEach(item => {
-            const refundId = getLateRefundId(item);
-            const isTicketed = ticketedIds.has(refundId);
-            html += `<li>Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr} ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
-        });
-        html += '</ul>';
-    }
-
-    if (gaps.length === 0 && lateRefunds.length === 0) {
-        resultsContainer.innerHTML = '<p>No maintenance gaps or late refunds found.</p>';
-    } else {
-        resultsContainer.innerHTML = html;
+        console.error("Cannot display analysis results: main container 'transaction-sum-container' not found.");
     }
 
     // --- Refund Status Analysis & UI Update ---
@@ -388,7 +460,7 @@ async function analyzeMaintenancePeriods() {
     await applyProcessedVisuals();
 }
 
-async function fileSupportTicket() {
+async function fileSupportTicket(isAutomated = false) {
   const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
   const aen = aenElement ? aenElement.textContent.trim() : '';
 
@@ -396,12 +468,20 @@ async function fileSupportTicket() {
   const analysisData = window.mpacTransactionEnhancerState.analysisData;
 
   if (!aen) {
-    alert('Could not find App Entitlement Number (AEN) on the page.');
+    if (isAutomated) {
+        console.error('Could not find App Entitlement Number (AEN) on the page.');
+    } else {
+        alert('Could not find App Entitlement Number (AEN) on the page.');
+    }
     return;
   }
 
   if (!analysisData || (analysisData.gaps.length === 0 && analysisData.lateRefunds.length === 0)) {
-    alert('No analysis data found. Please run the analysis first.');
+    if (isAutomated) {
+        console.log('No analysis data found. Please run the analysis first.');
+    } else {
+        alert('No analysis data found. Please run the analysis first.');
+    }
     return;
   }
 
@@ -416,7 +496,11 @@ async function fileSupportTicket() {
     const newLateRefunds = lateRefunds.filter(item => !ticketedIds.has(getLateRefundId(item)));
 
     if (newGaps.length === 0 && newLateRefunds.length === 0) {
-      alert('No new issues found to file a ticket for.');
+      if (isAutomated) {
+          console.log('No new issues found to file a ticket for.');
+      } else {
+          alert('No new issues found to file a ticket for.');
+      }
       return;
     }
 
@@ -468,7 +552,9 @@ async function fileSupportTicket() {
 
   } catch (error) {
     console.error("Error during fileSupportTicket:", error);
-    alert("An error occurred while filing the support ticket. Check the console for details.");
+    if (!isAutomated) {
+        alert("An error occurred while filing the support ticket. Check the console for details.");
+    }
   }
 }
 
@@ -692,26 +778,293 @@ function injectStyles() {
   document.head.appendChild(style);
 }
 
-async function processAll() {
-  console.log('Starting full process...');
+// Renamed from processAll, this is the main worker for a single AEN page.
+async function runAnalysisAndTicketing(isAutomated = false) {
+    console.log(`🚀 Starting full analysis and ticketing process... (Automated: ${isAutomated})`);
+    console.log(`🌐 Current URL: ${location.href}`);
 
-  // 1. Expand all rows
-  expandAllRows();
+    try {
+        // The table structure might be ready, but the data rows are loaded asynchronously.
+        // We must wait for them to appear before we can process them.
+        console.log("⏳ Waiting for transaction rows to load...");
+        await waitForRows();
+        console.log("✅ Transaction rows found, proceeding...");
 
-  // Give some time for the rows to expand and details to be rendered.
-  await new Promise(resolve => setTimeout(resolve, 2000));
+        // Now that rows are present, process the table to add our controls and attributes.
+        console.log('🔧 Processing table with enhancements...');
+        processTable();
+        console.log('✅ Table processing complete.');
 
-  // 2. Run analysis
-  await analyzeMaintenancePeriods();
+        // 1. Expand all rows so we can access the details needed for analysis.
+        console.log('🔍 Expanding all rows...');
+        await expandAllRowsWithWait();
+        console.log('✅ Row expansion complete.');
 
-  // 3. File support ticket if needed
-  const analysisData = window.mpacTransactionEnhancerState.analysisData;
-  if (analysisData && (analysisData.gaps.length > 0 || analysisData.lateRefunds.length > 0)) {
-    await fileSupportTicket();
-  } else {
-    console.log('No issues found, skipping support ticket creation.');
-    alert('Analysis complete. No maintenance gaps or late refunds found.');
-  }
+        // 2. Run analysis on the now-visible data.
+        console.log('📊 Running maintenance period analysis...');
+        await analyzeMaintenancePeriods();
+        console.log('✅ Analysis complete.');
+
+        // 3. File support ticket if needed
+        const analysisData = window.mpacTransactionEnhancerState.analysisData;
+        if (analysisData && (analysisData.gaps.length > 0 || analysisData.lateRefunds.length > 0)) {
+            console.log('🎫 Issues found, filing support ticket...');
+            await fileSupportTicket(isAutomated);
+            if (isAutomated) {
+                // Give time for the support tab to open before we close this one.
+                console.log('⏳ Waiting for support tab to open...');
+                await new Promise(resolve => setTimeout(resolve, 3000));
+            }
+        } else {
+            console.log('✅ No issues found, skipping support ticket creation.');
+            if (!isAutomated) {
+                alert('Analysis complete. No maintenance gaps or late refunds found.');
+            }
+        }
+
+        // 4. Signal completion ONLY if part of an automated flow
+        if (isAutomated) {
+            console.log('🏁 Analysis complete for this tab. Signaling completion...');
+            await storageSet({ activeRefundJob: null }); // Signal completion by clearing the job
+            console.log('💾 Storage updated. Tab will remain open for inspection.');
+            
+            // Add a visual indicator that processing is complete
+            document.title = '✅ Analysis Complete - ' + document.title;
+            
+            // Add completion indicator to the page
+            const completionBanner = document.createElement('div');
+            completionBanner.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                background: #4CAF50;
+                color: white;
+                padding: 10px;
+                text-align: center;
+                font-weight: bold;
+                z-index: 10000;
+                border-bottom: 3px solid #45a049;
+            `;
+            completionBanner.textContent = '✅ Automated Analysis Complete - Check results below';
+            document.body.prepend(completionBanner);
+        }
+    } catch (error) {
+        console.error('❌ Error during automated analysis and ticketing:', error);
+        console.error('📍 Error stack:', error.stack);
+        
+        if (isAutomated) {
+            // Still need to signal completion even on error to prevent hanging
+            console.log('⚠️ Signaling completion due to error...');
+            await storageSet({ activeRefundJob: null });
+            console.log('💾 Error completion signaled. Tab will remain open for debugging.');
+            
+            // Add error indicator to the page
+            document.title = '❌ Analysis Error - ' + document.title;
+            
+            const errorBanner = document.createElement('div');
+            errorBanner.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                background: #f44336;
+                color: white;
+                padding: 10px;
+                text-align: center;
+                font-weight: bold;
+                z-index: 10000;
+                border-bottom: 3px solid #d32f2f;
+            `;
+            errorBanner.textContent = '❌ Automated Analysis Error - Check console for details';
+            document.body.prepend(errorBanner);
+        } else {
+            alert('An error occurred during analysis. Check the console for details.');
+        }
+    }
+}
+
+
+// This is the entry point when the user clicks "Process" on the main refund list.
+async function processRefundsSequentially() {
+    console.log('🚀 Starting sequential refund processing...');
+
+    const transactionRows = document.querySelectorAll('div[data-mpac-row-id]');
+    const unprocessedRows = [];
+
+    transactionRows.forEach(row => {
+        const statusIndicator = row.querySelector('.status-indicator');
+        // We want to process rows that do NOT have a status indicator.
+        if (!statusIndicator) {
+            unprocessedRows.push(row);
+        }
+    });
+
+    if (unprocessedRows.length === 0) {
+        alert('No unprocessed refunds found to process.');
+        return;
+    }
+
+    console.log(`📋 Found ${unprocessedRows.length} unprocessed rows`);
+
+    // Expand rows to ensure the AEN link is available in the DOM
+    for (const row of unprocessedRows) {
+        const isExpanded = row.getAttribute('aria-expanded') === 'true';
+        if (!isExpanded) {
+            const expandButton = row.querySelector('[role="gridcell"]:first-child button');
+            if (expandButton) {
+                expandButton.click();
+            }
+        }
+    }
+
+    // Wait a moment for the expansion to render the details
+    console.log('⏳ Waiting for row expansion...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const urlsToProcess = [];
+    for (const row of unprocessedRows) {
+        // The AEN link is in the row's details, which is the next sibling element.
+        const aenLinkElement = row.nextElementSibling?.querySelector('[data-testid="aen-transactions-link"] a');
+        if (aenLinkElement && aenLinkElement.href) {
+            urlsToProcess.push(aenLinkElement.href);
+        } else {
+            console.warn('⚠️ Could not find AEN transaction link for row:', row);
+        }
+    }
+
+    if (urlsToProcess.length > 0) {
+        // 🔥 LIMIT TO FIRST 5 FOR TESTING
+        const limitedUrls = urlsToProcess.slice(0, 5);
+        console.log(`📊 Found ${urlsToProcess.length} refunds total, limiting to first ${limitedUrls.length} for testing:`, limitedUrls);
+        
+        await storageSet({ 
+            refundQueue: limitedUrls,
+            totalRefundsToProcess: limitedUrls.length,
+            processedRefundsCount: 0
+        });
+        
+        // Update the Process button to show current status and enable manual continuation
+        updateProcessButtonForManualMode();
+        
+        // Start the first one
+        processNextInQueue();
+    } else {
+        alert('Found unprocessed rows, but could not extract any AEN transaction links. Make sure rows are expanded.');
+    }
+}
+
+async function processNextInQueue() {
+    console.log('🔄 processNextInQueue: Starting...');
+    
+    const data = await storageGet(['refundQueue', 'activeRefundJob', 'totalRefundsToProcess', 'processedRefundsCount']);
+    const queue = data.refundQueue || [];
+    const currentActiveJob = data.activeRefundJob;
+    const totalRefunds = data.totalRefundsToProcess || 0;
+    const processedCount = data.processedRefundsCount || 0;
+
+    console.log('🔄 processNextInQueue: Current state:', {
+        queueLength: queue.length,
+        currentActiveJob: currentActiveJob,
+        processedCount: processedCount,
+        totalRefunds: totalRefunds
+    });
+
+    // Check if there's already an active job running
+    if (currentActiveJob) {
+        console.log('⏸️ There is already an active job running. Waiting for it to complete...');
+        updateProcessButtonForManualMode(); // Update button to show status
+        return;
+    }
+
+    if (queue.length === 0) {
+        console.log('✅ Refund processing queue is empty. Process finished.');
+        await storageSet({ 
+            activeRefundJob: null, 
+            refundQueue: [], 
+            totalRefundsToProcess: 0, 
+            processedRefundsCount: 0 
+        });
+        
+        // Reset the process button
+        const processButton = document.getElementById('process-button');
+        if (processButton) {
+            processButton.textContent = 'Process';
+            processButton.style.backgroundColor = '';
+            processButton.disabled = false;
+        }
+        
+        alert('All refunds have been processed! Check the open tabs for results.');
+        // Apply processed visuals to show any new checkmarks
+        await applyProcessedVisuals();
+        return;
+    }
+
+    const nextUrl = queue.shift();
+    const newProcessedCount = processedCount + 1;
+    
+    console.log(`🚀 Processing ${newProcessedCount}/${totalRefunds}: ${nextUrl}`);
+    console.log(`📋 Remaining queue length: ${queue.length}`);
+
+    // Set the active job and update the remaining queue
+    await storageSet({ 
+        activeRefundJob: nextUrl, 
+        refundQueue: queue,
+        processedRefundsCount: newProcessedCount
+    });
+    console.log('💾 Storage updated with new active job');
+
+    // Update the button to show current progress
+    updateProcessButtonForManualMode();
+
+    // Brief delay to ensure storage is updated before opening tab
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Open the next URL in a new tab. The content script in that tab will take over.
+    console.log('🌐 Opening new tab for:', nextUrl);
+    window.open(nextUrl, '_blank');
+}
+
+// Update the Process button to show current progress and allow manual continuation
+async function updateProcessButtonForManualMode() {
+    const processButton = document.getElementById('process-button');
+    if (!processButton) return;
+
+    const data = await storageGet(['refundQueue', 'activeRefundJob', 'totalRefundsToProcess', 'processedRefundsCount']);
+    const queue = data.refundQueue || [];
+    const activeJob = data.activeRefundJob;
+    const totalRefunds = data.totalRefundsToProcess || 0;
+    const processedCount = data.processedRefundsCount || 0;
+
+    if (totalRefunds === 0) {
+        // No processing active
+        processButton.textContent = 'Process';
+        processButton.style.backgroundColor = '';
+        processButton.disabled = false;
+        return;
+    }
+
+    if (activeJob) {
+        // Currently processing
+        processButton.textContent = `Processing ${processedCount}/${totalRefunds}... (Working)`;
+        processButton.style.backgroundColor = '#ff9800';
+        processButton.disabled = true;
+    } else if (queue.length > 0) {
+        // Ready for next item
+        processButton.textContent = `Continue ${processedCount}/${totalRefunds} (${queue.length} remaining)`;
+        processButton.style.backgroundColor = '#4CAF50';
+        processButton.disabled = false;
+        
+        // Update the click handler to continue processing
+        processButton.onclick = () => {
+            processNextInQueue();
+        };
+    } else {
+        // All done
+        processButton.textContent = `Completed ${processedCount}/${totalRefunds}`;
+        processButton.style.backgroundColor = '#2196F3';
+        processButton.disabled = true;
+    }
 }
 
 function toggleExpandCollapseAll() {
@@ -720,7 +1073,7 @@ function toggleExpandCollapseAll() {
 
     const rows = document.querySelectorAll('div[data-mpac-row-id]');
     rows.forEach(row => {
-        const expandButton = row.querySelector('button.css-lpuias');
+        const expandButton = row.querySelector('[role="gridcell"]:first-child button');
         const isExpanded = row.getAttribute('aria-expanded') === 'true';
 
         if (expandButton) {
@@ -734,15 +1087,91 @@ function toggleExpandCollapseAll() {
 }
 
 function expandAllRows() {
-    const rows = document.querySelectorAll('div[data-mpac-row-id]');
-    rows.forEach(row => {
-        const expandButton = row.querySelector('button.css-lpuias');
+    // Look for all rows in the table, not just ones with our custom attribute
+    const rowGroup = document.querySelector('[role="rowgroup"]');
+    if (!rowGroup) {
+        console.log('expandAllRows: No rowgroup found');
+        return;
+    }
+    
+    const rows = rowGroup.querySelectorAll('[role="row"]');
+    console.log(`expandAllRows: Found ${rows.length} rows to potentially expand`);
+    
+    let expandedCount = 0;
+    rows.forEach((row, index) => {
+        const expandButton = row.querySelector('[role="gridcell"]:first-child button');
         const isExpanded = row.getAttribute('aria-expanded') === 'true';
 
         if (expandButton && !isExpanded) {
+            console.log(`expandAllRows: Expanding row ${index + 1}`);
             expandButton.click();
+            expandedCount++;
+        } else if (!expandButton) {
+            console.log(`expandAllRows: Row ${index + 1} has no expand button`);
+        } else {
+            console.log(`expandAllRows: Row ${index + 1} already expanded`);
         }
     });
+    
+    console.log(`expandAllRows: Expanded ${expandedCount} rows`);
+}
+
+async function expandAllRowsWithWait() {
+    console.log('expandAllRowsWithWait: Starting row expansion...');
+    
+    // First, expand all rows
+    expandAllRows();
+    
+    // Now wait for the details to load by checking for the presence of maintenance period data
+    const maxWaitTime = 10000; // 10 seconds max wait
+    const checkInterval = 500; // Check every 500ms
+    let waitTime = 0;
+    
+    while (waitTime < maxWaitTime) {
+        const rowGroup = document.querySelector('[role="rowgroup"]');
+        if (!rowGroup) {
+            console.log('expandAllRowsWithWait: No rowgroup found, breaking wait');
+            break;
+        }
+        
+        const rows = rowGroup.querySelectorAll('[role="row"]');
+        let allRowsHaveDetails = true;
+        let detailsFoundCount = 0;
+        
+        for (const row of rows) {
+            const isExpanded = row.getAttribute('aria-expanded') === 'true';
+            if (isExpanded) {
+                // Check if this row has the details loaded
+                const detailsMain = row.nextElementSibling?.querySelector('main.css-1gxi3n2-Main');
+                if (detailsMain) {
+                    const detailPairs = detailsMain.querySelectorAll('.css-1bh2dbg-EachPair');
+                    if (detailPairs.length > 0) {
+                        detailsFoundCount++;
+                    } else {
+                        allRowsHaveDetails = false;
+                    }
+                } else {
+                    allRowsHaveDetails = false;
+                }
+            }
+        }
+        
+        console.log(`expandAllRowsWithWait: Found details for ${detailsFoundCount} rows, waiting for all to load...`);
+        
+        if (allRowsHaveDetails && detailsFoundCount > 0) {
+            console.log('expandAllRowsWithWait: All expanded rows have details loaded');
+            break;
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
+        waitTime += checkInterval;
+    }
+    
+    if (waitTime >= maxWaitTime) {
+        console.log('expandAllRowsWithWait: Timeout reached, proceeding anyway');
+    } else {
+        console.log(`expandAllRowsWithWait: Row expansion complete after ${waitTime}ms`);
+    }
 }
 
 // Process the table
@@ -750,68 +1179,38 @@ function processTable() {
   nextRowIdCounter = 0; // Reset for each full processing run
   const table = document.querySelector('[role="treegrid"]');
   if (!table) return;
-  
+
   console.log('Processing table with transaction enhancements...');
-  
+
   // Clean up any existing enhancements first
   cleanupExistingEnhancements();
-  
-  // Find header row
-  const headerRow = table.querySelector('[role="row"]');
-  if (headerRow) {
-    addCheckboxHeader(headerRow);
-  }
-  
-  // Find all data rows
-  const rowGroup = table.querySelector('[role="rowgroup"]');
-  if (!rowGroup) return;
-  
-  const dataRows = rowGroup.querySelectorAll('[role="row"]');
-  
-  dataRows.forEach(row => {
-    // Find the net amount cell (last cell with amount)
-    const cells = row.querySelectorAll('[role="gridcell"]');
-    const netAmountCell = cells[cells.length - 1]; // Last cell should be Net $
-    
-    if (netAmountCell) {
-      const amountText = netAmountCell.textContent.trim();
-      const netAmount = parseNetAmount(amountText);
-      
-      addCheckboxToRow(row, netAmount);
-    }
-  });
-  
-  // Create sum display
+
+  // Create sum display and attach event listeners immediately
   const sumContainer = createSumDisplay();
   const processButton = sumContainer.querySelector('#process-button');
   if (processButton) {
-      processButton.addEventListener('click', processAll);
+      if (location.href.includes('saleType=refund')) {
+          processButton.addEventListener('click', processRefundsSequentially);
+      } else {
+          processButton.addEventListener('click', () => runAnalysisAndTicketing(false));
+      }
   }
-
   const expandCollapseButton = sumContainer.querySelector('#expand-collapse-all-dropdown');
   if (expandCollapseButton) {
-      expandCollapseButton.addEventListener('click', (e) => {
-        e.preventDefault();
-        toggleExpandCollapseAll();
-      });
+      expandCollapseButton.addEventListener('click', (e) => { e.preventDefault(); toggleExpandCollapseAll(); });
   }
-
   const analyzeButton = sumContainer.querySelector('#analyze-button-dropdown');
   if (analyzeButton) {
-      analyzeButton.addEventListener('click', (e) => {
-        e.preventDefault();
-        analyzeMaintenancePeriods();
-      });
+      analyzeButton.addEventListener('click', (e) => { e.preventDefault(); analyzeMaintenancePeriods(); });
   }
-
   const fileSupportTicketButton = sumContainer.querySelector('#file-support-ticket-button-dropdown');
   if (fileSupportTicketButton) {
-    fileSupportTicketButton.addEventListener('click', (e) => {
-        e.preventDefault();
-        fileSupportTicket();
-    });
+    fileSupportTicketButton.addEventListener('click', (e) => { e.preventDefault(); fileSupportTicket(); });
   }
-
+  const resetProcessingStateButton = sumContainer.querySelector('#reset-processing-state-dropdown');
+  if (resetProcessingStateButton) {
+    resetProcessingStateButton.addEventListener('click', (e) => { e.preventDefault(); resetProcessingState(); });
+  }
   const dropdownButton = sumContainer.querySelector('#dropdown-button');
   const dropdownContent = sumContainer.querySelector('#dropdown-content');
   if (dropdownButton) {
@@ -824,18 +1223,35 @@ function processTable() {
           dropdownContent.style.display = 'none';
       }
   });
-  
-  // Initial sum calculation
-  updateSelectAllHeaderState(); // Set header based on current row states
+
+  // Find header row and add checkbox header
+  const headerRow = table.querySelector('[role="row"]');
+  if (headerRow) {
+    addCheckboxHeader(headerRow);
+  }
+
+  // Find all data rows and process them
+  const rowGroup = table.querySelector('[role="rowgroup"]');
+  if (rowGroup) {
+      const dataRows = rowGroup.querySelectorAll('[role="row"]');
+      dataRows.forEach(row => {
+        const cells = row.querySelectorAll('[role="gridcell"]');
+        const netAmountCell = cells[cells.length - 1];
+        if (netAmountCell) {
+          const amountText = netAmountCell.textContent.trim();
+          const netAmount = parseNetAmount(amountText);
+          addCheckboxToRow(row, netAmount);
+        }
+      });
+  }
+
+  // Final UI updates
+  updateSelectAllHeaderState();
   updateSum();
-
-  // Rewrite URLs every time the table is processed
   addTransactionLinks();
-
   applyProcessedVisuals();
 
-
-  // After the first successful processing, mark it as done
+  // Mark initial processing as done
   if (window.mpacTransactionEnhancerState.isInitialProcess && document.getElementById('select-all-checkbox')) {
     window.mpacTransactionEnhancerState.isInitialProcess = false;
   }
@@ -1002,6 +1418,14 @@ async function init() {
       console.log('Transaction Enhancer: processTable() successful, sum display found. Setting up observer.');
       setupTableObserver();
       initRetries = 0; // Reset retries on success
+      
+      // Check if this was an automated job and run the analysis
+      if (window.mpacTransactionEnhancerState.isAutomatedJob) {
+          console.log('Automated job detected, running analysis and ticketing.');
+          window.mpacTransactionEnhancerState.isAutomatedJob = false; // Prevent re-running
+          runAnalysisAndTicketing(true);
+      }
+
       initInProgress = false;
     } else {
       console.log('Transaction Enhancer: processTable() did not add sum display yet (table might be empty or rendering). Retrying...');
@@ -1025,6 +1449,174 @@ async function init() {
 }
 
 // Start the extension
+// This function will check if the current tab is part of the automated refund processing flow.
+async function checkForAutomatedJob() {
+    console.log('🔍 checkForAutomatedJob: Starting job detection...');
+    console.log('🔍 checkForAutomatedJob: Current URL:', location.href);
+    
+    const data = await storageGet(['activeRefundJob', 'refundQueue']);
+    const activeJobUrl = data.activeRefundJob;
+    const queue = data.refundQueue || [];
+
+    console.log('🔍 checkForAutomatedJob: Storage data:', { activeJobUrl, queueLength: queue.length });
+
+    // If there's an active job, check if it matches this URL (handle both relative and absolute URLs)
+    if (activeJobUrl) {
+        const currentUrl = location.href;
+        const currentPath = location.pathname + location.search;
+        
+        console.log('🔍 checkForAutomatedJob: URL comparison:');
+        console.log('  - Current URL:', currentUrl);
+        console.log('  - Current Path:', currentPath);
+        console.log('  - Active Job URL:', activeJobUrl);
+        
+        // Check if the stored URL matches either the full URL or just the path+query
+        const isMatch = (currentUrl === activeJobUrl) || 
+                       (currentPath === activeJobUrl) ||
+                       (currentUrl.endsWith(activeJobUrl));
+        
+        console.log('🔍 checkForAutomatedJob: URL match result:', isMatch);
+        
+        if (isMatch) {
+            console.log('✅ This tab is an AUTOMATED refund processing job. Flagging for automation.');
+            window.mpacTransactionEnhancerState.isAutomatedJob = true;
+            
+            // Instead of going through normal init, directly trigger automated processing
+            console.log('🤖 Starting DIRECT automated processing...');
+            await runAutomatedProcessingDirectly();
+            return; // Don't call init() or set up storage listeners
+        } else {
+            console.log('ℹ️ Not an automated job - URLs do not match.');
+            window.mpacTransactionEnhancerState.isAutomatedJob = false;
+        }
+    } else {
+        console.log('ℹ️ No active job URL found in storage. This is a manual session.');
+        window.mpacTransactionEnhancerState.isAutomatedJob = false;
+    }
+    
+    console.log('🔍 checkForAutomatedJob: Final automation flag:', window.mpacTransactionEnhancerState.isAutomatedJob);
+    
+    // For non-automated tabs, proceed with normal initialization
+    init();
+
+    // This listener is for the *original* tab, to kick off the next job.
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+        if (namespace === 'local' && changes.activeRefundJob) {
+            // If activeRefundJob was cleared, it means a tab finished its work.
+            if (changes.activeRefundJob.oldValue && !changes.activeRefundJob.newValue) {
+                console.log('🔄 Detected completion of an active job. Processing next in queue.');
+                // We must ensure we are on the original page, not the one that just closed.
+                // A simple way is to check if a queue exists. The worker tabs won't have the full queue context.
+                // A better check is to see if the "Process" button exists.
+                if (document.getElementById('process-button')) {
+                   processNextInQueue();
+                } else {
+                   console.log('🔄 Not on original page (no process button), ignoring completion signal.');
+                }
+            }
+        }
+    });
+}
+
+// Dedicated function for automated processing that bypasses normal init
+async function runAutomatedProcessingDirectly() {
+    console.log('🤖 runAutomatedProcessingDirectly: Starting...');
+    console.log('🤖 Current URL:', location.href);
+    console.log('🤖 Document ready state:', document.readyState);
+    
+    try {
+        // Inject styles first
+        injectStyles();
+        
+        // Add immediate visual indicator
+        document.title = '🤖 Automated Processing... - ' + document.title;
+        
+        const processingBanner = document.createElement('div');
+        processingBanner.id = 'automated-processing-banner';
+        processingBanner.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: #ff9800;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            z-index: 10000;
+            border-bottom: 3px solid #f57c00;
+        `;
+        processingBanner.textContent = '🤖 Automated Processing in Progress...';
+        document.body.prepend(processingBanner);
+        
+        // Wait for the table and rows to load with more detailed logging
+        console.log('🤖 Step 1: Waiting for table...');
+        await waitForTable();
+        console.log('🤖 Step 1 Complete: Table found');
+        
+        console.log('🤖 Step 2: Waiting for rows...');
+        await waitForRows();
+        console.log('🤖 Step 2 Complete: Rows found');
+        
+        // Update banner
+        processingBanner.textContent = '🤖 Processing table and expanding rows...';
+        
+        // Give a bit more time for the page to fully render
+        console.log('🤖 Step 3: Waiting 3 seconds for page to fully stabilize...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        console.log('🤖 Step 3 Complete: Page stabilized');
+        
+        // Update banner
+        processingBanner.textContent = '🤖 Processing table and setting up infrastructure...';
+        
+        // First, we need to process the table to set up our infrastructure
+        console.log('🤖 Step 4: Processing table...');
+        processTable();
+        console.log('🤖 Step 4 Complete: Table processed');
+        
+        // Update banner
+        processingBanner.textContent = '🤖 Running analysis and creating tickets...';
+        
+        // Now run the full analysis
+        console.log('🤖 Step 5: Starting analysis and ticketing...');
+        await runAnalysisAndTicketing(true);
+        console.log('🤖 Step 5 Complete: Analysis finished');
+        
+    } catch (error) {
+        console.error('🤖 ERROR in automated processing:', error);
+        console.error('🤖 ERROR stack:', error.stack);
+        
+        // Add error indicator
+        document.title = '❌ Automated Error - ' + document.title;
+        
+        // Remove processing banner
+        const banner = document.getElementById('automated-processing-banner');
+        if (banner) banner.remove();
+        
+        const errorBanner = document.createElement('div');
+        errorBanner.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: #f44336;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            z-index: 10000;
+            border-bottom: 3px solid #d32f2f;
+        `;
+        errorBanner.textContent = '❌ Automated Processing Error - Check console for details';
+        document.body.prepend(errorBanner);
+        
+        // Still signal completion to prevent hanging
+        await storageSet({ activeRefundJob: null });
+    }
+}
+
+
+// Start the extension
 // Initial init call will run if the page matches the content script pattern directly.
 if (location.href.includes('/reporting/transactions')) {
   // Reset retries when starting fresh on a matching URL
@@ -1036,7 +1628,9 @@ if (location.href.includes('/reporting/transactions')) {
     window.mpacTransactionEnhancerState.rowCheckboxStates = {}; // Clear stored states
     window.mpacTransactionEnhancerState.analysisData = null;
   }
-  init();
+  
+  // Check if this tab should be running an automated job or initializing normally.
+  checkForAutomatedJob();
 }
 
 
@@ -1113,6 +1707,41 @@ new MutationObserver(() => {
     }
   }
 }).observe(document, { subtree: true, childList: true });
+
+async function resetProcessingState() {
+  try {
+    // Clear all processing-related storage
+    await storageSet({
+      activeRefundJob: null,
+      refundQueue: [],
+      totalRefundsToProcess: 0,
+      processedRefundsCount: 0
+    });
+    
+    console.log('Processing state has been reset');
+    
+    // Reset the process button to normal state
+    const processButton = document.getElementById('process-button');
+    if (processButton) {
+      processButton.textContent = 'Process';
+      processButton.style.backgroundColor = '';
+      processButton.disabled = false;
+      
+      // Reset the click handler to the appropriate function
+      processButton.onclick = null;
+      if (location.href.includes('saleType=refund')) {
+        processButton.addEventListener('click', processRefundsSequentially);
+      } else {
+        processButton.addEventListener('click', () => runAnalysisAndTicketing(false));
+      }
+    }
+    
+    alert('Processing state has been reset. You can now start new processing.');
+  } catch (error) {
+    console.error('Error resetting processing state:', error);
+    alert('Error resetting processing state. Check console for details.');
+  }
+}
 
 // The URL rewriting is now handled within processTable, which is triggered
 // on initial load and on any table changes. This avoids the need for
