@@ -51,9 +51,17 @@ function createSumDisplay() {
   sumContainer.innerHTML = `
     <div class="sum-display">
       <strong>Selected Total: <span id="sum-amount">$0.00</span></strong>
-      <button id="analyze-button" class="css-1l34k60" style="margin-left: 15px;">Analyze Maintenance Periods</button>
-      <button id="expand-collapse-all" class="css-1l34k60" style="margin-left: 15px;">Expand/Collapse All</button>
-      <button id="file-support-ticket-button" class="css-1l34k60" style="margin-left: 15px;">File Support Ticket</button>
+      <div class="button-group" style="margin-left: 15px;">
+        <button id="process-button" class="css-1l34k60">Process</button>
+        <div class="dropdown">
+          <button id="dropdown-button" class="css-1l34k60">▼</button>
+          <div id="dropdown-content" class="dropdown-content">
+            <a href="#" id="expand-collapse-all-dropdown">Expand/Collapse All</a>
+            <a href="#" id="analyze-button-dropdown">Analyze Maintenance Periods</a>
+            <a href="#" id="file-support-ticket-button-dropdown">File Support Ticket</a>
+          </div>
+        </div>
+      </div>
     </div>
     <div id="gap-analysis-results" style="margin-top: 10px;"></div>
   `;
@@ -461,6 +469,103 @@ function addCheckboxHeader(headerRow) {
   headerRow.appendChild(checkboxHeader);
 }
 
+function injectStyles() {
+  const style = document.createElement('style');
+  style.textContent = `
+    .button-group {
+      display: inline-flex;
+      align-items: center;
+    }
+    #process-button {
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+    }
+    #dropdown-button {
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+      border-left: 1px solid #ccc;
+    }
+    .dropdown {
+      position: relative;
+      display: inline-block;
+    }
+    .dropdown-content {
+      display: none;
+      position: absolute;
+      background-color: #f9f9f9;
+      min-width: 200px;
+      box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+      z-index: 1000;
+      right: 0;
+      border-radius: 3px;
+    }
+    .dropdown-content a {
+      color: black;
+      padding: 8px 12px;
+      text-decoration: none;
+      display: block;
+      font-size: 14px;
+    }
+    .dropdown-content a:hover {
+      background-color: #ddd;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+async function processAll() {
+  console.log('Starting full process...');
+
+  // 1. Expand all rows
+  expandAllRows();
+
+  // Give some time for the rows to expand and details to be rendered.
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // 2. Run analysis
+  analyzeMaintenancePeriods();
+
+  // 3. File support ticket if needed
+  const analysisData = window.mpacTransactionEnhancerState.analysisData;
+  if (analysisData && (analysisData.gaps.length > 0 || analysisData.lateRefunds.length > 0)) {
+    fileSupportTicket();
+  } else {
+    console.log('No issues found, skipping support ticket creation.');
+    alert('Analysis complete. No maintenance gaps or late refunds found.');
+  }
+}
+
+function toggleExpandCollapseAll() {
+    const firstRow = document.querySelector('div[data-mpac-row-id][aria-expanded]');
+    const shouldExpand = firstRow ? firstRow.getAttribute('aria-expanded') !== 'true' : true;
+
+    const rows = document.querySelectorAll('div[data-mpac-row-id]');
+    rows.forEach(row => {
+        const expandButton = row.querySelector('button.css-lpuias');
+        const isExpanded = row.getAttribute('aria-expanded') === 'true';
+
+        if (expandButton) {
+            if (shouldExpand && !isExpanded) {
+                expandButton.click();
+            } else if (!shouldExpand && isExpanded) {
+                expandButton.click();
+            }
+        }
+    });
+}
+
+function expandAllRows() {
+    const rows = document.querySelectorAll('div[data-mpac-row-id]');
+    rows.forEach(row => {
+        const expandButton = row.querySelector('button.css-lpuias');
+        const isExpanded = row.getAttribute('aria-expanded') === 'true';
+
+        if (expandButton && !isExpanded) {
+            expandButton.click();
+        }
+    });
+}
+
 // Process the table
 function processTable() {
   nextRowIdCounter = 0; // Reset for each full processing run
@@ -499,20 +604,47 @@ function processTable() {
   
   // Create sum display
   const sumContainer = createSumDisplay();
-  const analyzeButton = sumContainer.querySelector('#analyze-button');
-  if (analyzeButton) {
-      analyzeButton.addEventListener('click', analyzeMaintenancePeriods);
+  const processButton = sumContainer.querySelector('#process-button');
+  if (processButton) {
+      processButton.addEventListener('click', processAll);
   }
 
-  const expandCollapseButton = sumContainer.querySelector('#expand-collapse-all');
+  const expandCollapseButton = sumContainer.querySelector('#expand-collapse-all-dropdown');
   if (expandCollapseButton) {
-      expandCollapseButton.addEventListener('click', toggleExpandCollapseAll);
+      expandCollapseButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        toggleExpandCollapseAll();
+      });
   }
 
-  const fileSupportTicketButton = sumContainer.querySelector('#file-support-ticket-button');
-  if (fileSupportTicketButton) {
-    fileSupportTicketButton.addEventListener('click', fileSupportTicket);
+  const analyzeButton = sumContainer.querySelector('#analyze-button-dropdown');
+  if (analyzeButton) {
+      analyzeButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        analyzeMaintenancePeriods();
+      });
   }
+
+  const fileSupportTicketButton = sumContainer.querySelector('#file-support-ticket-button-dropdown');
+  if (fileSupportTicketButton) {
+    fileSupportTicketButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        fileSupportTicket();
+    });
+  }
+
+  const dropdownButton = sumContainer.querySelector('#dropdown-button');
+  const dropdownContent = sumContainer.querySelector('#dropdown-content');
+  if (dropdownButton) {
+      dropdownButton.addEventListener('click', () => {
+          dropdownContent.style.display = dropdownContent.style.display === 'block' ? 'none' : 'block';
+      });
+  }
+  document.addEventListener('click', (event) => {
+      if (dropdownButton && dropdownContent && !dropdownButton.contains(event.target) && !dropdownContent.contains(event.target)) {
+          dropdownContent.style.display = 'none';
+      }
+  });
   
   // Initial sum calculation
   updateSelectAllHeaderState(); // Set header based on current row states
@@ -668,6 +800,7 @@ let initRetries = 0;
 let initInProgress = false; // Flag to prevent multiple concurrent inits
 
 async function init() {
+  injectStyles();
   if (initInProgress) {
     console.log('Transaction Enhancer: Init already in progress.');
     return;
@@ -802,18 +935,3 @@ new MutationObserver(() => {
 // The URL rewriting is now handled within processTable, which is triggered
 // on initial load and on any table changes. This avoids the need for
 // a separate observer or timeouts for URL rewriting.
-
-let areRowsExpanded = true; // Assume rows are expanded by default
-
-function toggleExpandCollapseAll() {
-    const rows = document.querySelectorAll('div[data-mpac-row-id]');
-    rows.forEach(row => {
-        const expandButton = row.querySelector('button.css-lpuias');
-        const isExpanded = row.getAttribute('aria-expanded') === 'true';
-
-        if (expandButton && ((areRowsExpanded && isExpanded) || (!areRowsExpanded && !isExpanded))) {
-            expandButton.click();
-        }
-    });
-    areRowsExpanded = !areRowsExpanded;
-}
