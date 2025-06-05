@@ -149,9 +149,25 @@ function addStatusIndicator(row, status) {
     const indicator = document.createElement('span');
     indicator.className = 'status-indicator';
     
-    if (status === 'ok') {
+    if (status === 'clean') {
         indicator.textContent = '✅';
-        indicator.title = 'Refund analyzed and appears correct.';
+        indicator.title = 'Transaction analyzed and appears correct.';
+        indicator.style.marginLeft = '8px';
+        indicator.style.cursor = 'default';
+    } else if (status === 'needs_reanalysis') {
+        indicator.textContent = '⚠️';
+        indicator.title = 'Transaction needs re-analysis due to new related activity.';
+        indicator.style.marginLeft = '8px';
+        indicator.style.cursor = 'default';
+    } else if (status === 'issues') {
+        indicator.textContent = '❌';
+        indicator.title = 'Transaction has confirmed issues.';
+        indicator.style.marginLeft = '8px';
+        indicator.style.cursor = 'default';
+    } else if (status === 'ok') {
+        // Legacy support
+        indicator.textContent = '✅';
+        indicator.title = 'Transaction analyzed and appears correct.';
         indicator.style.marginLeft = '8px';
         indicator.style.cursor = 'default';
     }
@@ -172,17 +188,28 @@ function addStatusIndicator(row, status) {
 }
 
 async function applyProcessedVisuals() {
-    console.log("applyProcessedVisuals: Running...");
-    const storageKey = 'processedRefundOrderIds';
-    const data = await storageGet(storageKey);
-    const processedOrderIds = new Set(data[storageKey] || []);
-
-    if (processedOrderIds.size === 0) {
-        console.log("applyProcessedVisuals: No processed Order IDs found in storage.");
+    console.log("applyProcessedVisuals: Running with enhanced relationship tracking...");
+    
+    const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
+    const aen = aenElement ? aenElement.textContent.trim() : null;
+    
+    if (!aen) {
+        console.log("applyProcessedVisuals: No AEN found, falling back to legacy mode.");
+        await applyLegacyProcessedVisuals();
         return;
     }
-    
-    console.log(`applyProcessedVisuals: Found ${processedOrderIds.size} processed Order IDs in storage.`, processedOrderIds);
+
+    const relationshipsKey = 'transactionRelationships';
+    const data = await storageGet(relationshipsKey);
+    const relationships = data[relationshipsKey] || {};
+    const aenData = relationships[aen];
+
+    if (!aenData) {
+        console.log(`applyProcessedVisuals: No relationship data found for AEN ${aen}.`);
+        return;
+    }
+
+    console.log(`applyProcessedVisuals: Found relationship data for AEN ${aen}:`, aenData);
 
     const transactionRows = document.querySelectorAll('div[role="row"]');
     console.log(`applyProcessedVisuals: Found ${transactionRows.length} transaction rows on the page.`);
@@ -191,13 +218,59 @@ async function applyProcessedVisuals() {
         const orderIdElement = row.querySelector('div.css-1dzhcs > div:nth-child(2) > span > span');
         if (orderIdElement) {
             const orderId = orderIdElement.textContent.trim();
-            if (processedOrderIds.has(orderId)) {
-                console.log(`applyProcessedVisuals: Found matching Order ID ${orderId}. Applying visual.`);
-                addStatusIndicator(row, 'ok');
+            
+            // Check status across all periods for this order ID
+            let transactionStatus = null;
+            for (const periodKey in aenData.periods) {
+                const period = aenData.periods[periodKey];
+                if (period.renewals.includes(orderId) || period.refunds.includes(orderId)) {
+                    // Find the most significant status (issues > needs_reanalysis > clean)
+                    if (period.status === 'issues') {
+                        transactionStatus = 'issues';
+                        break; // Issues is highest priority
+                    } else if (period.status === 'needs_reanalysis' && transactionStatus !== 'issues') {
+                        transactionStatus = 'needs_reanalysis';
+                    } else if (period.status === 'clean' && !transactionStatus) {
+                        transactionStatus = 'clean';
+                    }
+                }
+            }
+
+            if (transactionStatus) {
+                console.log(`applyProcessedVisuals: Found Order ID ${orderId} with status ${transactionStatus}.`);
+                addStatusIndicator(row, transactionStatus);
             }
         }
     });
-    console.log("applyProcessedVisuals: Finished.");
+    console.log("applyProcessedVisuals: Finished enhanced processing.");
+}
+
+// Legacy support for existing data
+async function applyLegacyProcessedVisuals() {
+    console.log("applyLegacyProcessedVisuals: Running legacy mode...");
+    const storageKey = 'processedRefundOrderIds';
+    const data = await storageGet(storageKey);
+    const processedOrderIds = new Set(data[storageKey] || []);
+
+    if (processedOrderIds.size === 0) {
+        console.log("applyLegacyProcessedVisuals: No processed Order IDs found in storage.");
+        return;
+    }
+    
+    console.log(`applyLegacyProcessedVisuals: Found ${processedOrderIds.size} processed Order IDs in storage.`, processedOrderIds);
+
+    const transactionRows = document.querySelectorAll('div[role="row"]');
+    transactionRows.forEach(row => {
+        const orderIdElement = row.querySelector('div.css-1dzhcs > div:nth-child(2) > span > span');
+        if (orderIdElement) {
+            const orderId = orderIdElement.textContent.trim();
+            if (processedOrderIds.has(orderId)) {
+                console.log(`applyLegacyProcessedVisuals: Found matching Order ID ${orderId}. Applying legacy visual.`);
+                addStatusIndicator(row, 'clean');
+            }
+        }
+    });
+    console.log("applyLegacyProcessedVisuals: Finished.");
 }
 
 async function analyzeMaintenancePeriods() {
@@ -440,21 +513,25 @@ async function analyzeMaintenancePeriods() {
         console.error("Cannot display analysis results: main container 'transaction-sum-container' not found.");
     }
 
-    // --- Refund Status Analysis & UI Update ---
-    const processedRefundsStorageKey = 'processedRefundOrderIds';
-    const data = await storageGet(processedRefundsStorageKey);
-    const processedOrderIds = new Set(data[processedRefundsStorageKey] || []);
+    // --- Enhanced Relationship Tracking ---
+    if (aen) {
+        await updateTransactionRelationships(aen, transactions, gaps, lateRefunds);
+    } else {
+        // Fallback to legacy processing for compatibility
+        const processedRefundsStorageKey = 'processedRefundOrderIds';
+        const data = await storageGet(processedRefundsStorageKey);
+        const processedOrderIds = new Set(data[processedRefundsStorageKey] || []);
 
-    console.log(`analyzeMaintenancePeriods: Found ${refunds.length} refunds in the current view.`);
-    // Mark ALL refunds in the current analysis scope as processed.
-    refunds.forEach(refund => {
-        if (refund.orderId) {
-            processedOrderIds.add(refund.orderId);
-        }
-    });
+        console.log(`analyzeMaintenancePeriods: Found ${refunds.length} refunds in the current view.`);
+        refunds.forEach(refund => {
+            if (refund.orderId) {
+                processedOrderIds.add(refund.orderId);
+            }
+        });
 
-    console.log(`analyzeMaintenancePeriods: Storing ${processedOrderIds.size} total processed Order IDs.`, [...processedOrderIds]);
-    await storageSet({ [processedRefundsStorageKey]: [...processedOrderIds] });
+        console.log(`analyzeMaintenancePeriods: Storing ${processedOrderIds.size} total processed Order IDs.`, [...processedOrderIds]);
+        await storageSet({ [processedRefundsStorageKey]: [...processedOrderIds] });
+    }
     
     // Apply visuals immediately after analysis
     await applyProcessedVisuals();
@@ -1250,6 +1327,9 @@ function processTable() {
   updateSum();
   addTransactionLinks();
   applyProcessedVisuals();
+  
+  // Check for relationship changes and show notifications
+  showRelationshipChangeNotifications();
 
   // Mark initial processing as done
   if (window.mpacTransactionEnhancerState.isInitialProcess && document.getElementById('select-all-checkbox')) {
@@ -1741,6 +1821,223 @@ async function resetProcessingState() {
     console.error('Error resetting processing state:', error);
     alert('Error resetting processing state. Check console for details.');
   }
+}
+
+// --- Enhanced Relationship Tracking Functions ---
+
+// Get period key from maintenance period string
+function getPeriodKey(periodStr) {
+    if (!periodStr) return null;
+    const [startStr, endStr] = periodStr.split(' to ');
+    if (!startStr || !endStr) return null;
+    return `${startStr}_to_${endStr}`;
+}
+
+// Update transaction relationships with current analysis
+async function updateTransactionRelationships(aen, transactions, gaps, lateRefunds) {
+    console.log(`updateTransactionRelationships: Processing AEN ${aen} with ${transactions.length} transactions`);
+    
+    const relationshipsKey = 'transactionRelationships';
+    const data = await storageGet(relationshipsKey);
+    const relationships = data[relationshipsKey] || {};
+    
+    if (!relationships[aen]) {
+        relationships[aen] = {
+            lastAnalysisDate: new Date().toISOString().split('T')[0],
+            periods: {},
+            processedOrderIds: []
+        };
+    }
+
+    const aenData = relationships[aen];
+    aenData.lastAnalysisDate = new Date().toISOString().split('T')[0];
+
+    // Group transactions by period
+    const periodGroups = {};
+    transactions.forEach(tx => {
+        const periodKey = getPeriodKey(tx.periodStr);
+        if (periodKey) {
+            if (!periodGroups[periodKey]) {
+                periodGroups[periodKey] = { renewals: [], refunds: [], periodStr: tx.periodStr };
+            }
+            if (tx.saleType === 'refund') {
+                periodGroups[periodKey].refunds.push(tx.orderId);
+            } else {
+                periodGroups[periodKey].renewals.push(tx.orderId);
+            }
+        }
+    });
+
+    // Detect changes and update status for each period
+    for (const periodKey in periodGroups) {
+        const currentGroup = periodGroups[periodKey];
+        const existingPeriod = aenData.periods[periodKey];
+        
+        let status = 'clean'; // Default status
+        
+        // Check for issues
+        const periodGaps = gaps.filter(gap => 
+            gap.start >= currentGroup.periodStr.split(' to ')[0] && 
+            gap.end <= currentGroup.periodStr.split(' to ')[1]
+        );
+        
+        const periodLateRefunds = lateRefunds.filter(item => 
+            getPeriodKey(item.refund.periodStr) === periodKey
+        );
+
+        if (periodGaps.length > 0 || periodLateRefunds.length > 0) {
+            status = 'issues';
+        }
+
+        // Check for new transactions since last analysis
+        if (existingPeriod) {
+            const previousRenewals = new Set(existingPeriod.renewals);
+            const previousRefunds = new Set(existingPeriod.refunds);
+            const currentRenewals = new Set(currentGroup.renewals);
+            const currentRefunds = new Set(currentGroup.refunds);
+
+            const hasNewTransactions = 
+                !setsEqual(previousRenewals, currentRenewals) ||
+                !setsEqual(previousRefunds, currentRefunds);
+
+            if (hasNewTransactions && existingPeriod.status === 'clean') {
+                status = 'needs_reanalysis';
+                console.log(`updateTransactionRelationships: Period ${periodKey} needs re-analysis due to new transactions`);
+            }
+        }
+
+        // Update period data
+        aenData.periods[periodKey] = {
+            renewals: currentGroup.renewals,
+            refunds: currentGroup.refunds,
+            status: status,
+            lastRefundDate: getLatestRefundDate(currentGroup.refunds, transactions),
+            ticketIds: existingPeriod ? existingPeriod.ticketIds || [] : []
+        };
+    }
+
+    // Update processed order IDs
+    const allOrderIds = transactions.map(t => t.orderId).filter(Boolean);
+    aenData.processedOrderIds = [...new Set([...aenData.processedOrderIds, ...allOrderIds])];
+
+    // Save updated relationships
+    await storageSet({ [relationshipsKey]: relationships });
+    console.log(`updateTransactionRelationships: Updated relationships for AEN ${aen}:`, aenData);
+}
+
+// Helper function to check if two sets are equal
+function setsEqual(setA, setB) {
+    if (setA.size !== setB.size) return false;
+    for (const item of setA) {
+        if (!setB.has(item)) return false;
+    }
+    return true;
+}
+
+// Helper function to get latest refund date
+function getLatestRefundDate(refundOrderIds, transactions) {
+    const refundDates = transactions
+        .filter(t => t.saleType === 'refund' && refundOrderIds.includes(t.orderId))
+        .map(t => t.saleDate)
+        .sort((a, b) => b - a);
+    
+    return refundDates.length > 0 ? refundDates[0].toISOString().split('T')[0] : null;
+}
+
+// Detect relationship changes when loading a new page
+async function detectRelationshipChanges(aen, currentTransactions) {
+    if (!aen) return { changedOrderIds: [], notifications: [] };
+
+    const relationshipsKey = 'transactionRelationships';
+    const data = await storageGet(relationshipsKey);
+    const relationships = data[relationshipsKey] || {};
+    const aenData = relationships[aen];
+
+    if (!aenData) {
+        return { changedOrderIds: [], notifications: [] };
+    }
+
+    const currentOrderIds = new Set(currentTransactions.map(t => t.orderId).filter(Boolean));
+    const previousOrderIds = new Set(aenData.processedOrderIds);
+    
+    const newOrderIds = [...currentOrderIds].filter(id => !previousOrderIds.has(id));
+    const changedOrderIds = [];
+    const notifications = [];
+
+    if (newOrderIds.length > 0) {
+        // Check if new transactions affect existing periods
+        for (const tx of currentTransactions) {
+            if (newOrderIds.includes(tx.orderId)) {
+                const periodKey = getPeriodKey(tx.periodStr);
+                if (periodKey && aenData.periods[periodKey]) {
+                    const period = aenData.periods[periodKey];
+                    if (period.status === 'clean') {
+                        // Mark related transactions for re-analysis
+                        period.renewals.forEach(id => changedOrderIds.push(id));
+                        period.refunds.forEach(id => changedOrderIds.push(id));
+                        
+                        notifications.push(`New ${tx.saleType} found in period ${tx.periodStr} - related transactions need re-analysis`);
+                    }
+                }
+            }
+        }
+    }
+
+    return { changedOrderIds: [...new Set(changedOrderIds)], notifications };
+}
+
+// Add notification system for relationship changes
+async function showRelationshipChangeNotifications() {
+    const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
+    const aen = aenElement ? aenElement.textContent.trim() : null;
+    
+    if (!aen) return;
+
+    // Get current transactions (simplified for notification check)
+    const transactions = [];
+    const transactionRows = document.querySelectorAll('div[role="row"]');
+    
+    transactionRows.forEach(row => {
+        const orderIdElement = row.querySelector('div.css-1dzhcs > div:nth-child(2) > span > span');
+        if (orderIdElement) {
+            transactions.push({ orderId: orderIdElement.textContent.trim() });
+        }
+    });
+
+    const { changedOrderIds, notifications } = await detectRelationshipChanges(aen, transactions);
+
+    if (notifications.length > 0) {
+        const notificationDiv = document.createElement('div');
+        notificationDiv.id = 'relationship-notifications';
+        notificationDiv.style.cssText = `
+            position: fixed;
+            top: 60px;
+            right: 20px;
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 5px;
+            padding: 15px;
+            max-width: 400px;
+            z-index: 9999;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        `;
+        
+        let html = '<h4 style="margin-top: 0; color: #856404;">⚠️ Transaction Changes Detected</h4>';
+        notifications.forEach(msg => {
+            html += `<p style="margin: 5px 0; color: #856404;">${msg}</p>`;
+        });
+        html += '<button onclick="this.parentElement.remove()" style="margin-top: 10px; padding: 5px 10px; background: #ffc107; border: none; border-radius: 3px; cursor: pointer;">Dismiss</button>';
+        
+        notificationDiv.innerHTML = html;
+        document.body.appendChild(notificationDiv);
+
+        // Auto-dismiss after 10 seconds
+        setTimeout(() => {
+            if (notificationDiv.parentElement) {
+                notificationDiv.remove();
+            }
+        }, 10000);
+    }
 }
 
 // The URL rewriting is now handled within processTable, which is triggered
