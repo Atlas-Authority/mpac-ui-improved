@@ -50,7 +50,10 @@ function createSumDisplay() {
   sumContainer.innerHTML = `
     <div class="sum-display">
       <strong>Selected Total: <span id="sum-amount">$0.00</span></strong>
+      <button id="analyze-button" class="css-1l34k60" style="margin-left: 15px;">Analyze Maintenance Periods</button>
+      <button id="expand-collapse-all" class="css-1l34k60" style="margin-left: 15px;">Expand/Collapse All</button>
     </div>
+    <div id="gap-analysis-results" style="margin-top: 10px;"></div>
   `;
   
   // Insert before the table
@@ -60,6 +63,125 @@ function createSumDisplay() {
   }
   
   return sumContainer;
+}
+
+function analyzeMaintenancePeriods() {
+    const transactions = [];
+    const transactionRows = document.querySelectorAll('div[data-mpac-row-id]');
+
+    transactionRows.forEach(row => {
+        const saleTypeCell = row.querySelector('div[role="gridcell"]:nth-child(5)');
+        const saleType = saleTypeCell ? saleTypeCell.textContent.trim().toLowerCase() : 'unknown';
+
+        const detailsMain = row.nextElementSibling.querySelector('main.css-1gxi3n2-Main');
+        if (detailsMain) {
+            const detailPairs = detailsMain.querySelectorAll('.css-1bh2dbg-EachPair');
+            let maintenancePeriodText = null;
+            detailPairs.forEach(pair => {
+                const pElements = pair.getElementsByTagName('p');
+                if (pElements.length > 1 && pElements[0].textContent.trim() === 'Maintenance period') {
+                    maintenancePeriodText = pElements[1].textContent.trim();
+                }
+            });
+
+            if (maintenancePeriodText) {
+                const [startDateStr, endDateStr] = maintenancePeriodText.split(' to ');
+                if (startDateStr && endDateStr) {
+                    const startDate = new Date(startDateStr);
+                    const endDate = new Date(endDateStr);
+                    if (!isNaN(startDate) && !isNaN(endDate)) {
+                        transactions.push({ startDate, endDate, saleType, periodStr: maintenancePeriodText });
+                    }
+                }
+            }
+        }
+    });
+
+    const renewals = transactions.filter(t => t.saleType !== 'refund');
+    const refunds = transactions.filter(t => t.saleType === 'refund');
+
+    const activeRenewals = [];
+    const usedRefunds = new Set();
+
+    for (const renewal of renewals) {
+        const matchingRefundIndex = refunds.findIndex((refund, index) =>
+            !usedRefunds.has(index) &&
+            refund.startDate.getTime() === renewal.startDate.getTime() &&
+            refund.endDate.getTime() === renewal.endDate.getTime()
+        );
+
+        if (matchingRefundIndex !== -1) {
+            // This renewal is refunded, mark the refund as used and skip the renewal
+            usedRefunds.add(matchingRefundIndex);
+        } else {
+            // This renewal is active
+            activeRenewals.push(renewal);
+        }
+    }
+
+    // Sort active renewals by start date
+    activeRenewals.sort((a, b) => a.startDate - b.startDate);
+
+    // Merge overlapping/contiguous periods
+    const mergedPeriods = [];
+    if (activeRenewals.length > 0) {
+        let currentPeriod = { ...activeRenewals[0] };
+
+        for (let i = 1; i < activeRenewals.length; i++) {
+            const nextPeriod = activeRenewals[i];
+            const dayAfterCurrentEnd = new Date(currentPeriod.endDate);
+            dayAfterCurrentEnd.setDate(dayAfterCurrentEnd.getDate() + 1);
+
+            // If the next period starts on or before the day after the current one ends, merge them
+            if (nextPeriod.startDate <= dayAfterCurrentEnd) {
+                if (nextPeriod.endDate > currentPeriod.endDate) {
+                    currentPeriod.endDate = nextPeriod.endDate;
+                }
+            } else {
+                mergedPeriods.push(currentPeriod);
+                currentPeriod = { ...nextPeriod };
+            }
+        }
+        mergedPeriods.push(currentPeriod);
+    }
+
+
+    const gaps = [];
+    for (let i = 0; i < mergedPeriods.length - 1; i++) {
+        const currentEndDate = mergedPeriods[i].endDate;
+        const nextStartDate = mergedPeriods[i + 1].startDate;
+
+        const gapStartDate = new Date(currentEndDate);
+        gapStartDate.setDate(gapStartDate.getDate() + 1);
+
+        if (gapStartDate < nextStartDate) {
+            const gapEndDate = new Date(nextStartDate);
+            gapEndDate.setDate(gapEndDate.getDate() - 1);
+
+            if (gapEndDate >= gapStartDate) {
+                const timeDiff = gapEndDate.getTime() - gapStartDate.getTime();
+                const dayDiff = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
+
+                gaps.push({
+                    start: gapStartDate.toISOString().split('T')[0],
+                    end: gapEndDate.toISOString().split('T')[0],
+                    days: dayDiff
+                });
+            }
+        }
+    }
+
+    const resultsContainer = document.getElementById('gap-analysis-results');
+    if (gaps.length > 0) {
+        let html = '<h3>Maintenance Gaps Found:</h3><ul>';
+        gaps.forEach(gap => {
+            html += `<li>Gap from ${gap.start} to ${gap.end} (${gap.days} days)</li>`;
+        });
+        html += '</ul>';
+        resultsContainer.innerHTML = html;
+    } else {
+        resultsContainer.innerHTML = '<p>No maintenance gaps found.</p>';
+    }
 }
 
 // Update the sum display
@@ -275,7 +397,16 @@ function processTable() {
   });
   
   // Create sum display
-  createSumDisplay();
+  const sumContainer = createSumDisplay();
+  const analyzeButton = sumContainer.querySelector('#analyze-button');
+  if (analyzeButton) {
+      analyzeButton.addEventListener('click', analyzeMaintenancePeriods);
+  }
+
+  const expandCollapseButton = sumContainer.querySelector('#expand-collapse-all');
+  if (expandCollapseButton) {
+      expandCollapseButton.addEventListener('click', toggleExpandCollapseAll);
+  }
   
   // Initial sum calculation
   updateSelectAllHeaderState(); // Set header based on current row states
@@ -563,3 +694,18 @@ new MutationObserver(() => {
 // The URL rewriting is now handled within processTable, which is triggered
 // on initial load and on any table changes. This avoids the need for
 // a separate observer or timeouts for URL rewriting.
+
+let areRowsExpanded = true; // Assume rows are expanded by default
+
+function toggleExpandCollapseAll() {
+    const rows = document.querySelectorAll('div[data-mpac-row-id]');
+    rows.forEach(row => {
+        const expandButton = row.querySelector('button.css-lpuias');
+        const isExpanded = row.getAttribute('aria-expanded') === 'true';
+
+        if (expandButton && ((areRowsExpanded && isExpanded) || (!areRowsExpanded && !isExpanded))) {
+            expandButton.click();
+        }
+    });
+    areRowsExpanded = !areRowsExpanded;
+}

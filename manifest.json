@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MPAC UI Enhancer",
-  "version": "1.1",
-  "description": "Designed to make the MPAC UI better. Adds checkboxes for transaction calculations and rewrites entitlement URLs from licenses to transactions pages",
+  "version": "1.2",
+  "description": "Enhances the Atlassian Marketplace vendor reporting page with features like transaction calculations, maintenance period analysis, and an expand/collapse all button.",
   "permissions": [
     "activeTab"
   ],
