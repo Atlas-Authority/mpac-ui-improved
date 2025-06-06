@@ -213,7 +213,6 @@ function createSumDisplay() {
             <a href="#" id="expand-collapse-all-dropdown">Expand/Collapse All</a>
             <a href="#" id="analyze-button-dropdown">Analyze Maintenance Periods</a>
             <a href="#" id="file-support-ticket-button-dropdown">File Support Ticket</a>
-            <a href="#" id="reset-processing-state-dropdown">Reset Processing State</a>
             <a href="#" id="reset-history-page-records-dropdown">Reset History for Page Records</a>
           </div>
         </div>
@@ -1492,10 +1491,6 @@ function processTable() {
   const fileSupportTicketButton = sumContainer.querySelector('#file-support-ticket-button-dropdown');
   if (fileSupportTicketButton) {
     fileSupportTicketButton.addEventListener('click', (e) => { e.preventDefault(); fileSupportTicket(); });
-  }
-  const resetProcessingStateButton = sumContainer.querySelector('#reset-processing-state-dropdown');
-  if (resetProcessingStateButton) {
-    resetProcessingStateButton.addEventListener('click', (e) => { e.preventDefault(); resetProcessingState(); });
   }
   const resetHistoryPageRecordsButton = sumContainer.querySelector('#reset-history-page-records-dropdown');
   if (resetHistoryPageRecordsButton) {

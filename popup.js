@@ -205,6 +205,9 @@ function setupEventListeners() {
   document.getElementById('intervalMs').addEventListener('change', saveSettings);
   document.getElementById('maxRetries').addEventListener('change', saveSettings);
   document.getElementById('retryIntervalMs').addEventListener('change', saveSettings);
+  
+  // Reset processing state button
+  document.getElementById('resetProcessingStateButton').addEventListener('click', resetProcessingState);
 }
 
 // Save current settings to storage
@@ -276,6 +279,39 @@ function checkCurrentTab() {
       statusElement.className = 'status inactive';
     }
   });
+}
+
+// Reset processing state function
+async function resetProcessingState() {
+  try {
+    // Clear all processing-related storage
+    await new Promise((resolve, reject) => {
+      chrome.storage.local.set({
+        activeRefundJob: null,
+        refundQueue: [],
+        totalRefundsToProcess: 0,
+        processedRefundsCount: 0
+      }, () => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve();
+        }
+      });
+    });
+    
+    console.log('Processing state has been reset from popup');
+    
+    // Show success indicator
+    showSaveIndicator();
+    
+    // Show confirmation to user
+    alert('Processing state has been reset. You can now start new processing.');
+    
+  } catch (error) {
+    console.error('Error resetting processing state from popup:', error);
+    alert('Error resetting processing state. Check console for details.');
+  }
 }
 
 // Export settings utilities for content script access
