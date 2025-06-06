@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "MPAC UI Enhancer",
+  "name": "Atlassian Marketplace Transaction Enhancer",
   "version": "1.7",
-  "description": "Enhances the Atlassian Marketplace vendor reporting page with a 'Process' button and dropdown for streamlined analysis and ticketing, duplicate ticket prevention, and other UI improvements.",
+  "description": "Comprehensive Chrome extension that transforms Atlassian Marketplace vendor reporting with advanced analysis, automated support ticket creation, sequential refund processing, maintenance gap detection, demo scenarios, and extensive customization options for streamlined vendor operations.",
   "permissions": [
     "activeTab",
     "storage"
@@ -24,6 +24,6 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Transaction Enhancer"
+    "default_title": "MPAC UI Enhancer - Transaction Analysis & Automation"
   }
 }
