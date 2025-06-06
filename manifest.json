@@ -1,22 +1,29 @@
 {
   "manifest_version": 3,
-  "name": "MPAC UI Enhancer",
-  "version": "1.4",
-  "description": "Enhances the Atlassian Marketplace vendor reporting page with features like transaction calculations, maintenance period analysis, late refund detection, and an expand/collapse all button.",
+  "name": "Atlassian Marketplace Transaction Enhancer",
+  "version": "1.7",
+  "description": "Comprehensive Chrome extension that transforms Atlassian Marketplace vendor reporting with advanced analysis, automated support ticket creation, sequential refund processing, maintenance gap detection, demo scenarios, and extensive customization options for streamlined vendor operations.",
   "permissions": [
-    "activeTab"
+    "activeTab",
+    "storage"
   ],
   "content_scripts": [
     {
       "matches": [
         "https://marketplace.atlassian.com/manage/vendors/*/reporting/transactions*"
       ],
-      "js": ["content.js"],
+      "js": ["demo-data.js", "demo-mode.js", "content.js"],
       "css": ["styles.css"]
+    },
+    {
+      "matches": [
+        "https://support.atlassian.com/contact/"
+      ],
+      "js": ["support.js"]
     }
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Transaction Enhancer"
+    "default_title": "MPAC UI Enhancer - Transaction Analysis & Automation"
   }
-} 
+}

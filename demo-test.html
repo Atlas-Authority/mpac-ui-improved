@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Mode Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .scenario {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            background-color: #f9f9f9;
+        }
+        .scenario h3 {
+            color: #0052cc;
+            margin-top: 0;
+        }
+        .transaction-list {
+            background: white;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .transaction {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .transaction:last-child {
+            border-bottom: none;
+        }
+        .status {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status.clean { background: #e3fcef; color: #006644; }
+        .status.issues { background: #ffebe6; color: #ae2e24; }
+        .status.mixed { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <h1>🎭 MPAC UI Enhancer - Demo Mode Test</h1>
+    
+    <p>This page demonstrates the demo scenarios that will be available in your Chrome extension's demo mode. Each scenario provides realistic but synthetic data for safe recording without GDPR concerns.</p>
+
+    <div class="scenario">
+        <h3>🟢 Scenario 1: Clean AEN - No Issues</h3>
+        <p><strong>Company:</strong> TechFlow Solutions | <strong>AEN:</strong> SEN-L12345678</p>
+        <p><strong>Purpose:</strong> Perfect maintenance periods with no gaps or late refunds</p>
+        <p><strong>Expected Results:</strong> All transactions should show green checkmarks (✅)</p>
+        <div class="transaction-list">
+            <div class="transaction">
+                <span>12 consecutive monthly renewals</span>
+                <span class="status clean">Clean</span>
+            </div>
+            <div class="transaction">
+                <span>3 normal refunds (within 30 days)</span>
+                <span class="status clean">Clean</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="scenario">
+        <h3>🟡 Scenario 2: Maintenance Gaps</h3>
+        <p><strong>Company:</strong> DataSync Corp | <strong>AEN:</strong> SEN-L23456789</p>
+        <p><strong>Purpose:</strong> Contains maintenance period gaps requiring tickets</p>
+        <p><strong>Expected Results:</strong> Should detect 3 gaps (5 days, 15 days, 45 days) and show red X's (❌)</p>
+        <div class="transaction-list">
+            <div class="transaction">
+                <span>3 months coverage → 5 day gap</span>
+                <span class="status issues">Issues</span>
+            </div>
+            <div class="transaction">
+                <span>2 months coverage → no gap</span>
+                <span class="status clean">Clean</span>
+            </div>
+            <div class="transaction">
+                <span>4 months coverage → 15 day gap</span>
+                <span class="status issues">Issues</span>
+            </div>
+            <div class="transaction">
+                <span>2 months coverage → 45 day gap</span>
+                <span class="status issues">Issues</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="scenario">
+        <h3>🔴 Scenario 3: Late Refunds</h3>
+        <p><strong>Company:</strong> CloudBridge Ltd | <strong>AEN:</strong> SEN-L34567890</p>
+        <p><strong>Purpose:</strong> Contains refunds issued after 30-day threshold</p>
+        <p><strong>Expected Results:</strong> Should detect late refunds (45-90 days) and show red X's (❌)</p>
+        <div class="transaction-list">
+            <div class="transaction">
+                <span>8 monthly renewals</span>
+                <span class="status clean">Clean</span>
+            </div>
+            <div class="transaction">
+                <span>3 late refunds (45-89 days after original)</span>
+                <span class="status issues">Issues</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="scenario">
+        <h3>⚠️ Scenario 4: Complex Mixed Issues</h3>
+        <p><strong>Company:</strong> Enterprise Systems Inc | <strong>AEN:</strong> SEN-L45678901</p>
+        <p><strong>Purpose:</strong> Large dataset with both gaps and late refunds</p>
+        <p><strong>Expected Results:</strong> Should detect multiple gaps AND late refunds, perfect for comprehensive demos</p>
+        <div class="transaction-list">
+            <div class="transaction">
+                <span>50+ transactions across 8 periods</span>
+                <span class="status mixed">Mixed</span>
+            </div>
+            <div class="transaction">
+                <span>3 maintenance gaps (10, 20, 35 days)</span>
+                <span class="status issues">Issues</span>
+            </div>
+            <div class="transaction">
+                <span>4 late refunds (35-94 days)</span>
+                <span class="status issues">Issues</span>
+            </div>
+            <div class="transaction">
+                <span>Regular refunds (within 30 days)</span>
+                <span class="status clean">Clean</span>
+            </div>
+        </div>
+    </div>
+
+    <h2>📋 How to Use Demo Mode</h2>
+    <ol>
+        <li><strong>Navigate</strong> to the Atlassian Marketplace transactions page</li>
+        <li><strong>Click</strong> the extension icon and go to "Settings" tab</li>
+        <li><strong>Enable</strong> "Demo Mode" and select a scenario</li>
+        <li><strong>Watch</strong> as the page content is replaced with synthetic data</li>
+        <li><strong>Record</strong> your demo safely - no real customer data is visible</li>
+        <li><strong>Test</strong> all features: analysis, gap detection, ticket filing</li>
+        <li><strong>Disable</strong> demo mode to restore original content</li>
+    </ol>
+
+    <h2>🎯 Perfect for Recording</h2>
+    <ul>
+        <li>✅ <strong>GDPR Compliant:</strong> No real customer data</li>
+        <li>✅ <strong>Realistic:</strong> Professional-looking synthetic data</li>
+        <li>✅ <strong>Comprehensive:</strong> Shows all extension features</li>
+        <li>✅ <strong>Flexible:</strong> Multiple scenarios for different demo needs</li>
+        <li>✅ <strong>Safe:</strong> Clear visual indicators prevent confusion</li>
+    </ul>
+
+    <script>
+        // Simple demo script to show data generation
+        console.log('Demo Mode Test Page Loaded');
+        console.log('This page demonstrates the scenarios available in demo mode');
+    </script>
+</body>
+</html>
