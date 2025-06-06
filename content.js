@@ -391,6 +391,11 @@ async function analyzeMaintenancePeriods() {
             console.log(`analyzeMaintenancePeriods: Row ${index + 1} order ID: ${orderId}`);
         }
 
+        // Use the value already extracted and stored in the checkbox
+        const checkbox = row.querySelector('.transaction-checkbox');
+        const netAmount = checkbox ? parseFloat(checkbox.dataset.netAmount) : 0;
+        console.log(`analyzeMaintenancePeriods: Row ${index + 1} net amount: ${formatAmount(netAmount)}`);
+
         const detailsMain = row.nextElementSibling?.querySelector('main.css-1gxi3n2-Main');
         if (detailsMain) {
             console.log(`analyzeMaintenancePeriods: Row ${index + 1} has details section`);
@@ -417,7 +422,7 @@ async function analyzeMaintenancePeriods() {
                     const startDate = new Date(`${startDateStr}T00:00:00Z`);
                     const endDate = new Date(`${endDateStr}T00:00:00Z`);
                     if (!isNaN(startDate) && !isNaN(endDate) && saleDate && !isNaN(saleDate)) {
-                        transactions.push({ row, saleDate, startDate, endDate, saleType, periodStr: maintenancePeriodText, orderId });
+                        transactions.push({ row, saleDate, startDate, endDate, saleType, periodStr: maintenancePeriodText, orderId, netAmount });
                         console.log(`analyzeMaintenancePeriods: Added transaction for row ${index + 1}`);
                     } else {
                         console.log(`analyzeMaintenancePeriods: Row ${index + 1} has invalid dates`);
@@ -555,7 +560,24 @@ async function analyzeMaintenancePeriods() {
             gaps.forEach(gap => {
                 const gapId = getGapId(gap);
                 const isTicketed = ticketedIds.has(gapId);
-                html += `<li>Gap from ${gap.start} to ${gap.end} (${gap.days} days) ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
+                
+                // Calculate gap value using net revenue from all renewals that overlap with the gap
+                // (regardless of whether they were later refunded, since they provided coverage during the gap)
+                let gapValue = 0;
+                renewals.forEach(renewal => {
+                    // Check if this renewal period overlaps with the gap
+                    const renewalStart = renewal.startDate.toISOString().split('T')[0];
+                    const renewalEnd = renewal.endDate.toISOString().split('T')[0];
+                    if (renewalStart <= gap.end && renewalEnd >= gap.start) {
+                        // Calculate daily rate and multiply by gap days
+                        const renewalDays = Math.ceil((renewal.endDate - renewal.startDate) / (1000 * 60 * 60 * 24)) + 1;
+                        const dailyRate = Math.abs(renewal.netAmount) / renewalDays; // Use absolute value for consistent calculation
+                        gapValue += dailyRate * gap.days;
+                    }
+                });
+                
+                const gapValueText = gapValue > 0 ? ` (Value: ${formatAmount(gapValue)})` : '';
+                html += `<li>Gap from ${gap.start} to ${gap.end} (${gap.days} days)${gapValueText} ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
             });
             html += '</ul>';
         }
@@ -565,7 +587,12 @@ async function analyzeMaintenancePeriods() {
             lateRefunds.forEach(item => {
                 const refundId = getLateRefundId(item);
                 const isTicketed = ticketedIds.has(refundId);
-                html += `<li>Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr} ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
+                
+                // Use the total net revenue from the refund transaction
+                const refundValue = Math.abs(item.refund.netAmount);
+                const refundValueText = refundValue > 0 ? ` (Value: ${formatAmount(refundValue)})` : '';
+                
+                html += `<li>Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr}${refundValueText} ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
             });
             html += '</ul>';
         }
