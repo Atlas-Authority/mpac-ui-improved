@@ -4,59 +4,155 @@
   <meta charset="utf-8">
   <style>
     body {
-      width: 300px;
-      padding: 16px;
+      width: 420px;
+      padding: 0;
+      margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
       font-size: 14px;
       line-height: 1.4;
+      background-color: #f8f9fa;
     }
     
     .header {
+      background: linear-gradient(135deg, #0052cc 0%, #0065ff 100%);
+      color: white;
+      padding: 16px;
       text-align: center;
-      margin-bottom: 16px;
     }
     
-    h1 {
+    .header h1 {
       font-size: 18px;
-      margin: 0 0 8px 0;
-      color: #172b4d;
-    }
-    
-    .subtitle {
-      color: #6b778c;
-      font-size: 12px;
-    }
-    
-    .info {
-      background-color: #f4f5f7;
-      padding: 12px;
-      border-radius: 4px;
-      margin: 16px 0;
-      border-left: 3px solid #0052cc;
-    }
-    
-    .info-title {
+      margin: 0 0 4px 0;
       font-weight: 600;
-      margin-bottom: 8px;
+    }
+    
+    .header .subtitle {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+    
+    .tabs {
+      display: flex;
+      background-color: white;
+      border-bottom: 1px solid #ddd;
+    }
+    
+    .tab {
+      flex: 1;
+      padding: 12px 8px;
+      text-align: center;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s ease;
+      font-weight: 500;
+      font-size: 13px;
+    }
+    
+    .tab:hover {
+      background-color: #f4f5f7;
+    }
+    
+    .tab.active {
+      color: #0052cc;
+      border-bottom-color: #0052cc;
+      background-color: #fff;
+    }
+    
+    .tab-content {
+      display: none;
+      padding: 16px;
+      background-color: white;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    .section {
+      margin-bottom: 20px;
+      border: 1px solid #e4e6ea;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    
+    .section-header {
+      background-color: #f4f5f7;
+      padding: 12px 16px;
+      font-weight: 600;
+      font-size: 13px;
       color: #172b4d;
+      border-bottom: 1px solid #e4e6ea;
     }
     
-    ul {
-      margin: 0;
-      padding-left: 16px;
+    .section-content {
+      padding: 16px;
     }
     
-    li {
-      margin-bottom: 4px;
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+    
+    .setting-row:last-child {
+      margin-bottom: 0;
+    }
+    
+    .setting-label {
+      flex: 1;
+      font-size: 13px;
       color: #44546f;
     }
     
+    .setting-control {
+      flex: 0 0 auto;
+    }
+    
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .slider {
+      width: 80px;
+    }
+    
+    .slider-value {
+      min-width: 30px;
+      font-size: 12px;
+      color: #6b778c;
+    }
+    
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .radio-group {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    
+    .radio-option {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+    }
+    
     .status {
-      padding: 8px 12px;
-      border-radius: 4px;
+      padding: 12px;
+      border-radius: 6px;
       text-align: center;
       font-weight: 500;
-      margin-top: 16px;
+      margin: 16px;
     }
     
     .status.active {
@@ -71,40 +167,337 @@
       border: 1px solid #ff8f73;
     }
     
+    .info-box {
+      background-color: #f4f5f7;
+      padding: 12px;
+      border-radius: 6px;
+      margin: 16px;
+      border-left: 3px solid #0052cc;
+      font-size: 13px;
+      color: #44546f;
+    }
+    
+    .debug-section {
+      background-color: #fff3cd;
+      border-color: #ffeaa7;
+    }
+    
+    .debug-section .section-header {
+      background-color: #fff3cd;
+      color: #856404;
+    }
+    
+    .save-indicator {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: #00a86b;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    
+    .save-indicator.show {
+      opacity: 1;
+    }
+    
+    .all-checkbox {
+      margin-left: 8px;
+    }
+    
+    input[type="range"] {
+      width: 80px;
+    }
+    
+    input[type="number"] {
+      width: 60px;
+      padding: 4px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+    }
+    
+    input[type="checkbox"], input[type="radio"] {
+      margin: 0;
+    }
+    
+    select {
+      padding: 4px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+      background-color: white;
+    }
+    
     .footer {
       text-align: center;
-      margin-top: 16px;
-      font-size: 12px;
+      padding: 12px 16px;
+      font-size: 11px;
       color: #6b778c;
+      border-top: 1px solid #e4e6ea;
+      background-color: #f8f9fa;
     }
   </style>
 </head>
 <body>
+  <div class="save-indicator" id="save-indicator">Saved ✓</div>
+  
   <div class="header">
-    <h1>Transaction Enhancer</h1>
-    <div class="subtitle">Atlassian Marketplace Extension</div>
+    <h1>MPAC UI Enhancer</h1>
+    <div class="subtitle">Transaction Analysis & Processing</div>
   </div>
   
-  <div class="info">
-    <div class="info-title">Features:</div>
-    <ul>
-      <li>Adds checkboxes to each transaction row</li>
-      <li>Defaults all checkboxes to checked</li>
-      <li>Calculates sum of selected Net $ amounts</li>
-      <li>Displays running total above the table</li>
-      <li>Select All checkbox in header</li>
-      <li>Rewrites entitlement URLs from licenses to transactions</li>
-    </ul>
+  <div class="tabs">
+    <div class="tab active" data-tab="status">Status</div>
+    <div class="tab" data-tab="settings">Settings</div>
+    <div class="tab" data-tab="debug">Debug</div>
   </div>
   
-  <div id="status" class="status">
-    Checking page compatibility...
+  <!-- Status Tab -->
+  <div class="tab-content active" id="status-tab">
+    <div id="status" class="status">
+      Checking page compatibility...
+    </div>
+    
+    <div class="info-box">
+      <strong>Current Features:</strong><br>
+      • Transaction checkboxes with sum calculation<br>
+      • Maintenance gap analysis<br>
+      • Late refund detection<br>
+      • Automated support ticket filing<br>
+      • Batch processing with status tracking
+    </div>
+  </div>
+  
+  <!-- Settings Tab -->
+  <div class="tab-content" id="settings-tab">
+    <div class="section">
+      <div class="section-header">Processing</div>
+      <div class="section-content">
+        <div class="setting-row">
+          <div class="setting-label">Batch processing limit</div>
+          <div class="setting-control">
+            <div class="slider-container">
+              <input type="range" class="slider" id="batchLimit" min="1" max="50" value="5">
+              <span class="slider-value" id="batchLimitValue">5</span>
+              <label class="checkbox-group all-checkbox">
+                <input type="checkbox" id="batchLimitAll"> All
+              </label>
+            </div>
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Late refund threshold</div>
+          <div class="setting-control">
+            <div class="slider-container">
+              <input type="range" class="slider" id="lateRefundDays" min="7" max="90" value="30">
+              <span class="slider-value" id="lateRefundDaysValue">30</span>
+              <span class="slider-value">days</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Auto-ticketing behavior</div>
+          <div class="setting-control">
+            <div class="radio-group">
+              <label class="radio-option">
+                <input type="radio" name="autoTicketing" value="manual"> Manual
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="autoTicketing" value="prefill" checked> Pre-fill
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="autoTicketing" value="analysis"> Analysis Only
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-header">Behavior</div>
+      <div class="section-content">
+        <div class="setting-row">
+          <div class="setting-label">Default checkbox state</div>
+          <div class="setting-control">
+            <label class="checkbox-group">
+              <input type="checkbox" id="defaultChecked" checked> All checked
+            </label>
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Auto-run analysis on page load</div>
+          <div class="setting-control">
+            <label class="checkbox-group">
+              <input type="checkbox" id="autoAnalysis"> Enabled
+            </label>
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Auto-expand rows during analysis</div>
+          <div class="setting-control">
+            <label class="checkbox-group">
+              <input type="checkbox" id="autoExpand" checked> Enabled
+            </label>
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Skip analysis if no new transactions</div>
+          <div class="setting-control">
+            <label class="checkbox-group">
+              <input type="checkbox" id="skipIfNoNew" checked> Enabled
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-header">Tab Management</div>
+      <div class="section-content">
+        <div class="setting-row">
+          <div class="setting-label">Auto-close tabs with no issues</div>
+          <div class="setting-control">
+            <label class="checkbox-group">
+              <input type="checkbox" id="autoCloseClean"> Enabled
+            </label>
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Auto-close tabs after (minutes)</div>
+          <div class="setting-control">
+            <div class="slider-container">
+              <input type="range" class="slider" id="autoCloseMinutes" min="0" max="60" value="0">
+              <span class="slider-value" id="autoCloseMinutesValue">Never</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Keep last N processed tabs</div>
+          <div class="setting-control">
+            <div class="slider-container">
+              <input type="range" class="slider" id="keepLastTabs" min="0" max="50" value="10">
+              <span class="slider-value" id="keepLastTabsValue">10</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-header">Notifications</div>
+      <div class="section-content">
+        <div class="setting-row">
+          <div class="setting-label">Auto-dismiss after (seconds)</div>
+          <div class="setting-control">
+            <div class="slider-container">
+              <input type="range" class="slider" id="notificationSeconds" min="0" max="60" value="10">
+              <span class="slider-value" id="notificationSecondsValue">10</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Relationship change notifications</div>
+          <div class="setting-control">
+            <label class="checkbox-group">
+              <input type="checkbox" id="enableRelationshipNotifs" checked> Enabled
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-header">URL Handling</div>
+      <div class="section-content">
+        <div class="setting-row">
+          <div class="setting-label">URL rewriting (licenses → transactions)</div>
+          <div class="setting-control">
+            <label class="checkbox-group">
+              <input type="checkbox" id="urlRewritingEnabled" checked> Enabled
+            </label>
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Open rewritten URLs in new tab</div>
+          <div class="setting-control">
+            <label class="checkbox-group">
+              <input type="checkbox" id="urlOpenNewTab" checked> Enabled
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Debug Tab -->
+  <div class="tab-content" id="debug-tab">
+    <div class="info-box" style="background-color: #fff3cd; border-color: #ffeaa7; color: #856404;">
+      <strong>⚠️ Debug Settings</strong><br>
+      These settings affect timing and retry behavior. Only modify if you experience issues.
+    </div>
+    
+    <div class="section debug-section">
+      <div class="section-header">Timing Controls</div>
+      <div class="section-content">
+        <div class="setting-row">
+          <div class="setting-label">Page stabilization delay (ms)</div>
+          <div class="setting-control">
+            <input type="number" id="pageStabilizeMs" min="500" max="10000" step="500" value="3000">
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Row expansion wait (ms)</div>
+          <div class="setting-control">
+            <input type="number" id="rowWaitMs" min="500" max="10000" step="500" value="2000">
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Processing interval (ms)</div>
+          <div class="setting-control">
+            <input type="number" id="intervalMs" min="100" max="5000" step="100" value="500">
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section debug-section">
+      <div class="section-header">Retry Logic</div>
+      <div class="section-content">
+        <div class="setting-row">
+          <div class="setting-label">Maximum retry attempts</div>
+          <div class="setting-control">
+            <input type="number" id="maxRetries" min="5" max="50" value="15">
+          </div>
+        </div>
+        
+        <div class="setting-row">
+          <div class="setting-label">Retry interval (ms)</div>
+          <div class="setting-control">
+            <input type="number" id="retryIntervalMs" min="500" max="5000" step="500" value="1000">
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
   
   <div class="footer">
-    Navigate to the Transactions page to see the enhancement in action.
+    Settings are automatically saved when changed
   </div>
 
   <script src="popup.js"></script>
 </body>
-</html> 
+</html>

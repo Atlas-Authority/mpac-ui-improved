@@ -1,11 +1,50 @@
+// Settings configuration (matches popup.js)
+const DEFAULT_SETTINGS = {
+  // Processing
+  batchLimit: 5,                    // -1 for unlimited (when "All" is checked)
+  lateRefundDays: 30,
+  autoTicketing: 'prefill',         // 'manual', 'prefill', 'analysis'
+  
+  // Behavior  
+  defaultChecked: true,
+  autoAnalysis: false,
+  autoExpand: true,
+  skipIfNoNew: true,
+  
+  // Tab Management
+  autoCloseClean: false,
+  autoCloseMinutes: 0,              // 0 = never
+  keepLastTabs: 10,                 // 0 = unlimited
+  
+  // Notifications
+  notificationSeconds: 10,          // 0 = never
+  enableRelationshipNotifs: true,
+  
+  // URL Handling
+  urlRewritingEnabled: true,
+  urlOpenNewTab: true,
+  
+  // Debug Settings
+  debug: {
+    pageStabilizeMs: 3000,
+    rowWaitMs: 2000,
+    intervalMs: 500,
+    maxRetries: 15,
+    retryIntervalMs: 1000
+  }
+};
+
+const SETTINGS_KEY = 'mpac_user_settings';
+
 // Global state for checkbox handling
 if (typeof window.mpacTransactionEnhancerState === 'undefined') {
   window.mpacTransactionEnhancerState = {
-    selectAllChecked: true, // Initial default
+    selectAllChecked: true, // Initial default (will be updated from settings)
     isInitialProcess: true,  // Flag for first-time processing
     rowCheckboxStates: {}, // Stores individual row checkbox states { rowId: boolean }
     analysisData: null,
-    isAutomatedJob: false
+    isAutomatedJob: false,
+    userSettings: DEFAULT_SETTINGS // Cache user settings
   };
 }
 
@@ -104,6 +143,30 @@ function showModal(title, message, onClose = null) {
 }
 
 
+
+// Load user settings from storage
+async function loadUserSettings() {
+    try {
+        const data = await storageGet([SETTINGS_KEY]);
+        const settings = data[SETTINGS_KEY] || DEFAULT_SETTINGS;
+        window.mpacTransactionEnhancerState.userSettings = settings;
+        
+        // Update global state based on settings
+        window.mpacTransactionEnhancerState.selectAllChecked = settings.defaultChecked;
+        
+        console.log('User settings loaded:', settings);
+        return settings;
+    } catch (error) {
+        console.error('Error loading user settings:', error);
+        window.mpacTransactionEnhancerState.userSettings = DEFAULT_SETTINGS;
+        return DEFAULT_SETTINGS;
+    }
+}
+
+// Get current user settings (with fallback)
+function getUserSettings() {
+    return window.mpacTransactionEnhancerState.userSettings || DEFAULT_SETTINGS;
+}
 
 // Promisified storage.get with error checking
 function storageGet(keys) {
@@ -377,7 +440,9 @@ async function analyzeMaintenancePeriods() {
 
     // --- Late Refund Logic ---
     const lateRefunds = [];
-    const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+    const settings = getUserSettings();
+    const lateRefundThresholdDays = settings.lateRefundDays;
+    const thresholdMs = lateRefundThresholdDays * 24 * 60 * 60 * 1000;
 
     for (const refund of refunds) {
         const potentialOriginalTxs = renewals
@@ -391,7 +456,7 @@ async function analyzeMaintenancePeriods() {
             const originalTx = potentialOriginalTxs[0];
             const timeDiff = refund.saleDate.getTime() - originalTx.saleDate.getTime();
 
-            if (timeDiff > thirtyDaysInMs) {
+            if (timeDiff > thresholdMs) {
                 const daysDiff = Math.round(timeDiff / (1000 * 3600 * 24));
                 lateRefunds.push({
                     refund,
@@ -496,7 +561,7 @@ async function analyzeMaintenancePeriods() {
         }
 
         if (lateRefunds.length > 0) {
-            html += '<h3>Late Refunds (> 30 days):</h3><ul>';
+            html += `<h3>Late Refunds (> ${lateRefundThresholdDays} days):</h3><ul>`;
             lateRefunds.forEach(item => {
                 const refundId = getLateRefundId(item);
                 const isTicketed = ticketedIds.has(refundId);
@@ -705,10 +770,11 @@ function addCheckboxToRow(row, netAmount) {
   checkbox.className = 'transaction-checkbox';
   checkbox.dataset.netAmount = netAmount.toString();
 
-  // Set checked state based on global and individual stored state
+  // Set checked state based on user settings and individual stored state
+  const settings = getUserSettings();
   if (window.mpacTransactionEnhancerState.isInitialProcess) {
-    checkbox.checked = true; // Default to checked on initial run
-    window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] = true;
+    checkbox.checked = settings.defaultChecked; // Use user's default setting
+    window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] = settings.defaultChecked;
   } else {
     // On re-runs, restore from stored state or default to selectAll if row is new to our tracking
     checkbox.checked = typeof window.mpacTransactionEnhancerState.rowCheckboxStates[rowId] !== 'undefined'
@@ -1059,9 +1125,19 @@ async function processRefundsSequentially() {
     }
 
     if (urlsToProcess.length > 0) {
-        // 🔥 LIMIT TO FIRST 5 FOR TESTING
-        const limitedUrls = urlsToProcess.slice(0, 5);
-        console.log(`📊 Found ${urlsToProcess.length} refunds total, limiting to first ${limitedUrls.length} for testing:`, limitedUrls);
+        const settings = getUserSettings();
+        const batchLimit = settings.batchLimit;
+        
+        let limitedUrls;
+        if (batchLimit === -1) {
+            // Process all
+            limitedUrls = urlsToProcess;
+            console.log(`📊 Found ${urlsToProcess.length} refunds total, processing all (unlimited batch size):`, limitedUrls);
+        } else {
+            // Apply batch limit
+            limitedUrls = urlsToProcess.slice(0, batchLimit);
+            console.log(`📊 Found ${urlsToProcess.length} refunds total, limiting to first ${limitedUrls.length} (batch limit: ${batchLimit}):`, limitedUrls);
+        }
         
         await storageSet({ 
             refundQueue: limitedUrls,
@@ -1524,8 +1600,8 @@ function setupTableObserver() {
 }
 
 // Initialize the extension
-const MAX_INIT_RETRIES = 15; // Max 15 retries (e.g., 15 seconds if 1s interval)
-const INIT_RETRY_INTERVAL = 1000; // 1 second
+let MAX_INIT_RETRIES = 15; // Max retries (will be updated from settings)
+let INIT_RETRY_INTERVAL = 1000; // Retry interval (will be updated from settings)
 let initRetries = 0;
 let initInProgress = false; // Flag to prevent multiple concurrent inits
 
@@ -1539,6 +1615,13 @@ async function init() {
   console.log(`Transaction Enhancer: init() called (attempt ${initRetries + 1}/${MAX_INIT_RETRIES}). Current URL: ${location.href}`);
 
   try {
+    // Load user settings first
+    const settings = await loadUserSettings();
+    
+    // Apply debug settings
+    MAX_INIT_RETRIES = settings.debug.maxRetries;
+    INIT_RETRY_INTERVAL = settings.debug.retryIntervalMs;
+    
     await waitForTable(); // Ensures the main table container exists
     console.log('Transaction Enhancer: Table container found.');
     
@@ -1556,6 +1639,9 @@ async function init() {
           console.log('Automated job detected, running analysis and ticketing.');
           window.mpacTransactionEnhancerState.isAutomatedJob = false; // Prevent re-running
           runAnalysisAndTicketing(true);
+      } else if (settings.autoAnalysis) {
+          console.log('Auto-analysis enabled, running analysis...');
+          runAnalysisAndTicketing(false);
       }
 
       initInProgress = false;
@@ -2194,6 +2280,13 @@ async function detectRelationshipChanges(aen, currentTransactions) {
 
 // Add notification system for relationship changes
 async function showRelationshipChangeNotifications() {
+    const settings = getUserSettings();
+    
+    // Check if relationship notifications are enabled
+    if (!settings.enableRelationshipNotifs) {
+        return;
+    }
+    
     const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
     const aen = aenElement ? aenElement.textContent.trim() : null;
     
@@ -2237,12 +2330,15 @@ async function showRelationshipChangeNotifications() {
         notificationDiv.innerHTML = html;
         document.body.appendChild(notificationDiv);
 
-        // Auto-dismiss after 10 seconds
-        setTimeout(() => {
-            if (notificationDiv.parentElement) {
-                notificationDiv.remove();
-            }
-        }, 10000);
+        // Auto-dismiss based on user settings
+        const autoDismissMs = settings.notificationSeconds * 1000;
+        if (autoDismissMs > 0) {
+            setTimeout(() => {
+                if (notificationDiv.parentElement) {
+                    notificationDiv.remove();
+                }
+            }, autoDismissMs);
+        }
     }
 }
 
