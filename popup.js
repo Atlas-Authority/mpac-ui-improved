@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS = {
   notificationSeconds: 10,          // 0 = never
   enableRelationshipNotifs: true,
   
+  
   // URL Handling
   urlRewritingEnabled: true,
   urlOpenNewTab: true,
@@ -108,6 +109,7 @@ function populateUI(settings) {
     settings.notificationSeconds === 0 ? 'Never' : settings.notificationSeconds;
   document.getElementById('enableRelationshipNotifs').checked = settings.enableRelationshipNotifs;
   
+  
   // URL Handling settings
   document.getElementById('urlRewritingEnabled').checked = settings.urlRewritingEnabled;
   document.getElementById('urlOpenNewTab').checked = settings.urlOpenNewTab;
@@ -192,6 +194,7 @@ function setupEventListeners() {
   
   document.getElementById('enableRelationshipNotifs').addEventListener('change', saveSettings);
   
+  
   // URL handling settings
   document.getElementById('urlRewritingEnabled').addEventListener('change', saveSettings);
   document.getElementById('urlOpenNewTab').addEventListener('change', saveSettings);
@@ -245,6 +248,7 @@ function saveSettings() {
     showSaveIndicator();
   });
 }
+
 
 // Show save indicator briefly
 function showSaveIndicator() {

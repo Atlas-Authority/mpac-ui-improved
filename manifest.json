@@ -12,7 +12,7 @@
       "matches": [
         "https://marketplace.atlassian.com/manage/vendors/*/reporting/transactions*"
       ],
-      "js": ["content.js"],
+      "js": ["demo-data.js", "demo-mode.js", "content.js"],
       "css": ["styles.css"]
     },
     {
@@ -26,4 +26,4 @@
     "default_popup": "popup.html",
     "default_title": "Transaction Enhancer"
   }
-} 
+}

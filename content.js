@@ -1116,11 +1116,50 @@ async function processRefundsSequentially() {
     const urlsToProcess = [];
     for (const row of unprocessedRows) {
         // The AEN link is in the row's details, which is the next sibling element.
-        const aenLinkElement = row.nextElementSibling?.querySelector('[data-testid="aen-transactions-link"] a');
+        // Try multiple approaches to find the AEN link
+        let aenLinkElement = null;
+        
+        // First, try the expected selector in the nested main element
+        aenLinkElement = row.nextElementSibling?.querySelector('main [data-testid="aen-transactions-link"] a');
+        
+        // If that doesn't work, try the original selector
+        if (!aenLinkElement) {
+            aenLinkElement = row.nextElementSibling?.querySelector('[data-testid="aen-transactions-link"] a');
+        }
+        
+        // If that doesn't work, try looking in the parent container
+        if (!aenLinkElement) {
+            const container = row.closest('[id^="table-item"]');
+            aenLinkElement = container?.querySelector('[data-testid="aen-transactions-link"] a');
+        }
+        
+        // If still not found, try looking for any link with the transactions pattern in main
+        if (!aenLinkElement) {
+            aenLinkElement = row.nextElementSibling?.querySelector('main a[href*="/reporting/transactions?text="]');
+        }
+        
+        // Try the pattern in nextElementSibling directly
+        if (!aenLinkElement) {
+            aenLinkElement = row.nextElementSibling?.querySelector('a[href*="/reporting/transactions?text="]');
+        }
+        
+        // As a last resort, try in the entire container
+        if (!aenLinkElement) {
+            const container = row.closest('[id^="table-item"]');
+            aenLinkElement = container?.querySelector('a[href*="/reporting/transactions?text="]');
+        }
+        
         if (aenLinkElement && aenLinkElement.href) {
+            console.log('✅ Found AEN transaction link for row:', aenLinkElement.href);
             urlsToProcess.push(aenLinkElement.href);
         } else {
             console.warn('⚠️ Could not find AEN transaction link for row:', row);
+            console.warn('Row structure:', row.parentElement?.outerHTML?.substring(0, 500));
+            
+            // Additional debugging: log the nextElementSibling structure
+            if (row.nextElementSibling) {
+                console.warn('Next sibling HTML:', row.nextElementSibling.outerHTML?.substring(0, 1000));
+            }
         }
     }
 
@@ -1665,6 +1704,7 @@ async function init() {
     initInProgress = false;
   }
 }
+
 
 // Start the extension
 // This function will check if the current tab is part of the automated refund processing flow.
