@@ -539,7 +539,8 @@ async function analyzeMaintenancePeriods() {
     // --- Store Analysis Data for Ticketing ---
     window.mpacTransactionEnhancerState.analysisData = {
         gaps,
-        lateRefunds
+        lateRefunds,
+        transactions // Include transactions for value calculations in tickets
     };
 
     // --- Display Results ---
@@ -670,7 +671,23 @@ async function fileSupportTicket(isAutomated = false) {
       description += 'New Maintenance Gaps Found:\n';
       description += '-----------------\n';
       newGaps.forEach(gap => {
-        description += `Gap from ${gap.start} to ${gap.end} (${gap.days} days)\n`;
+        // Calculate gap value for ticket description (same logic as UI display)
+        let gapValue = 0;
+        const transactions = window.mpacTransactionEnhancerState.analysisData?.transactions || [];
+        const renewals = transactions.filter(t => t.saleType !== 'refund');
+        
+        renewals.forEach(renewal => {
+          const renewalStart = renewal.startDate.toISOString().split('T')[0];
+          const renewalEnd = renewal.endDate.toISOString().split('T')[0];
+          if (renewalStart <= gap.end && renewalEnd >= gap.start) {
+            const renewalDays = Math.ceil((renewal.endDate - renewal.startDate) / (1000 * 60 * 60 * 24)) + 1;
+            const dailyRate = Math.abs(renewal.netAmount) / renewalDays;
+            gapValue += dailyRate * gap.days;
+          }
+        });
+        
+        const gapValueText = gapValue > 0 ? ` (Value: ${formatAmount(gapValue)})` : '';
+        description += `Gap from ${gap.start} to ${gap.end} (${gap.days} days)${gapValueText}\n`;
         newTicketedIds.push(getGapId(gap));
       });
       description += '-----------------\n';
@@ -681,7 +698,9 @@ async function fileSupportTicket(isAutomated = false) {
       description += 'New Late Refunds (> 30 days):\n';
       description += '-----------------\n';
       newLateRefunds.forEach(item => {
-        description += `Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr}\n`;
+        const refundValue = Math.abs(item.refund.netAmount);
+        const refundValueText = refundValue > 0 ? ` (Value: ${formatAmount(refundValue)})` : '';
+        description += `Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr}${refundValueText}\n`;
         newTicketedIds.push(getLateRefundId(item));
       });
       description += '-----------------\n';
