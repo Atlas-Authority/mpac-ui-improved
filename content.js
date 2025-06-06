@@ -247,11 +247,15 @@ function getRefundId(refund) {
 }
 
 // --- UI Manipulation ---
-function addStatusIndicator(row, status) {
-    // Remove existing indicator first to prevent duplicates
+async function addStatusIndicator(row, status) {
+    // Remove existing indicator and resolution button first to prevent duplicates
     const existingIndicator = row.querySelector('.status-indicator');
+    const existingResolveBtn = row.querySelector('.resolve-button');
     if (existingIndicator) {
         existingIndicator.remove();
+    }
+    if (existingResolveBtn) {
+        existingResolveBtn.remove();
     }
 
     if (!status) return;
@@ -259,28 +263,22 @@ function addStatusIndicator(row, status) {
     const indicator = document.createElement('span');
     indicator.className = 'status-indicator';
     
-    if (status === 'clean') {
-        indicator.textContent = '✅';
-        indicator.title = 'Transaction analyzed and appears correct.';
-        indicator.style.marginLeft = '8px';
-        indicator.style.cursor = 'default';
-    } else if (status === 'needs_reanalysis') {
-        indicator.textContent = '⚠️';
-        indicator.title = 'Transaction needs re-analysis due to new related activity.';
-        indicator.style.marginLeft = '8px';
-        indicator.style.cursor = 'default';
-    } else if (status === 'issues') {
-        indicator.textContent = '❌';
-        indicator.title = 'Transaction has confirmed issues.';
-        indicator.style.marginLeft = '8px';
-        indicator.style.cursor = 'default';
-    } else if (status === 'ok') {
-        // Legacy support
-        indicator.textContent = '✅';
-        indicator.title = 'Transaction analyzed and appears correct.';
-        indicator.style.marginLeft = '8px';
-        indicator.style.cursor = 'default';
-    }
+    // Status indicator configuration
+    const statusConfig = {
+        'clean': { icon: '✔️', title: 'Transaction analyzed and appears correct.', color: '#6B7280' },
+        'needs_reanalysis': { icon: '⚠️', title: 'Transaction needs re-analysis due to new related activity.', color: '#F59E0B' },
+        'issues': { icon: '❌', title: 'Transaction has confirmed issues.', color: '#EF4444' },
+        'resolved': { icon: '✅', title: 'Issues have been resolved.', color: '#10B981' },
+        'ok': { icon: '✔️', title: 'Transaction analyzed and appears correct.', color: '#6B7280' } // Legacy support
+    };
+
+    const config = statusConfig[status] || statusConfig['clean'];
+    indicator.textContent = config.icon;
+    indicator.title = config.title;
+    indicator.style.marginLeft = '8px';
+    indicator.style.cursor = 'default';
+    indicator.style.color = config.color;
+    
     console.log(`Adding status indicator '${status}' to row:`, row);
 
     // Inject into the first cell, after the expand button if it exists
@@ -293,6 +291,25 @@ function addStatusIndicator(row, status) {
             expandButton.insertAdjacentElement('afterend', indicator);
         } else {
             firstCell.appendChild(indicator);
+        }
+
+        // Add resolution button if status is 'issues' - always show it
+        if (status === 'issues') {
+            const orderIdElement = row.querySelector('div.css-1dzhcs > div:nth-child(2) > span > span');
+            const orderId = orderIdElement ? orderIdElement.textContent.trim() : null;
+            
+            if (orderId) {
+                const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
+                const aen = aenElement ? aenElement.textContent.trim() : null;
+                
+                if (aen) {
+                    const resolveBtn = document.createElement('button');
+                    resolveBtn.textContent = 'Mark Resolved';
+                    resolveBtn.className = 'resolve-button';
+                    resolveBtn.onclick = () => markAsResolved(orderId, aen, row);
+                    indicator.insertAdjacentElement('afterend', resolveBtn);
+                }
+            }
         }
     }
 }
@@ -997,6 +1014,26 @@ function injectStyles() {
     }
     .mpac-modal-button:hover {
       background-color: #45a049;
+    }
+    .status-indicator {
+      font-size: 16px;
+      margin-left: 8px;
+      cursor: default;
+      display: inline-block;
+    }
+    .resolve-button {
+      margin-left: 8px;
+      padding: 2px 8px;
+      font-size: 11px;
+      background: #10B981;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .resolve-button:hover {
+      background: #059669;
     }
   `;
   document.head.appendChild(style);
@@ -2428,8 +2465,19 @@ async function updateOrderIdStatusesDirectly(transactions, gaps, lateRefunds) {
     console.log(`updateOrderIdStatusesDirectly: Processing ${transactions.length} transactions`);
     
     const orderStatusKey = 'orderIdStatuses';
+    const resolvedItemsPrefix = 'resolvedItems_';
     const data = await storageGet(orderStatusKey);
     const orderStatuses = data[orderStatusKey] || {};
+    
+    // Get AEN for resolved items check
+    const aenElement = document.querySelector('[data-testid="app-entitlement-number"] a');
+    const aen = aenElement ? aenElement.textContent.trim() : null;
+    let resolvedItems = {};
+    
+    if (aen) {
+        const resolvedData = await storageGet(`${resolvedItemsPrefix}${aen}`);
+        resolvedItems = resolvedData[`${resolvedItemsPrefix}${aen}`] || {};
+    }
     
     // Group transactions by period to detect issues
     const periodGroups = {};
@@ -2470,7 +2518,12 @@ async function updateOrderIdStatusesDirectly(transactions, gaps, lateRefunds) {
         const allOrderIdsInPeriod = [...currentGroup.renewals, ...currentGroup.refunds];
         allOrderIdsInPeriod.forEach(orderId => {
             if (orderId) {
-                orderStatuses[orderId] = status;
+                // Check if this order ID has been resolved
+                if (resolvedItems[orderId]) {
+                    orderStatuses[orderId] = 'resolved';
+                } else {
+                    orderStatuses[orderId] = status;
+                }
             }
         });
     }
@@ -2479,6 +2532,88 @@ async function updateOrderIdStatusesDirectly(transactions, gaps, lateRefunds) {
     await storageSet({ [orderStatusKey]: orderStatuses });
     
     console.log(`updateOrderIdStatusesDirectly: Updated ${Object.keys(orderStatuses).length} Order ID statuses`);
+}
+
+// Check if an order ID has been ticketed
+async function checkIfTicketed(orderId, aen) {
+    if (!orderId || !aen) return false;
+    
+    const ticketedItemsKey = `ticketedItems_${aen}`;
+    const data = await storageGet(ticketedItemsKey);
+    const ticketedIds = data[ticketedItemsKey] || [];
+    
+    // Check if this order ID is part of any ticketed issues
+    // We need to check the analysis data to see if this order ID is related to any ticketed gaps or late refunds
+    const analysisData = window.mpacTransactionEnhancerState.analysisData;
+    if (!analysisData) return false;
+    
+    // Check late refunds
+    for (const lateRefund of analysisData.lateRefunds || []) {
+        if (lateRefund.refund.orderId === orderId || lateRefund.originalTx.orderId === orderId) {
+            const refundId = getLateRefundId(lateRefund);
+            if (ticketedIds.includes(refundId)) {
+                return true;
+            }
+        }
+    }
+    
+    // For gaps, we need to check if this order ID is part of a period that has a ticketed gap
+    // This is more complex as gaps are not directly tied to order IDs
+    // For now, we'll consider any transaction in a period with gaps as potentially ticketed
+    for (const gap of analysisData.gaps || []) {
+        const gapId = getGapId(gap);
+        if (ticketedIds.includes(gapId)) {
+            // Check if this order ID's transaction falls within the gap period
+            const transaction = analysisData.transactions.find(t => t.orderId === orderId);
+            if (transaction) {
+                const txStart = transaction.startDate.toISOString().split('T')[0];
+                const txEnd = transaction.endDate.toISOString().split('T')[0];
+                if (txStart <= gap.end && txEnd >= gap.start) {
+                    return true;
+                }
+            }
+        }
+    }
+    
+    return false;
+}
+
+// Mark an order ID as resolved
+async function markAsResolved(orderId, aen, row) {
+    if (!orderId || !aen) return;
+    
+    // Show confirmation dialog with optional notes
+    const notes = prompt('Mark this refund as resolved?\n\nOptional: Add resolution notes:', '');
+    if (notes === null) return; // User cancelled
+    
+    // Update resolved items storage
+    const resolvedItemsKey = `resolvedItems_${aen}`;
+    const data = await storageGet(resolvedItemsKey);
+    const resolvedItems = data[resolvedItemsKey] || {};
+    
+    resolvedItems[orderId] = {
+        resolvedDate: new Date().toISOString().split('T')[0],
+        resolvedBy: 'user',
+        notes: notes.trim(),
+        previousIssueType: 'refund_issue' // Could be enhanced to track specific issue type
+    };
+    
+    await storageSet({ [resolvedItemsKey]: resolvedItems });
+    
+    // Update order status
+    const orderStatusKey = 'orderIdStatuses';
+    const statusData = await storageGet(orderStatusKey);
+    const orderStatuses = statusData[orderStatusKey] || {};
+    orderStatuses[orderId] = 'resolved';
+    await storageSet({ [orderStatusKey]: orderStatuses });
+    
+    // Update visual immediately
+    await addStatusIndicator(row, 'resolved');
+    
+    // Show success message
+    showModal('Resolution Recorded', `Refund ${orderId} has been marked as resolved.`);
+    
+    console.log(`Marked order ${orderId} as resolved for AEN ${aen}`);
 }
 
 // The URL rewriting is now handled within processTable, which is triggered
