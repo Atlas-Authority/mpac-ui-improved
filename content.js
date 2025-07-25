@@ -582,14 +582,31 @@ async function analyzeMaintenancePeriods() {
                 // (regardless of whether they were later refunded, since they provided coverage during the gap)
                 let gapValue = 0;
                 renewals.forEach(renewal => {
+                    // Convert dates to Date objects for proper comparison
+                    const renewalStart = new Date(renewal.startDate);
+                    const renewalEnd = new Date(renewal.endDate);
+                    const gapStart = new Date(gap.start);
+                    const gapEnd = new Date(gap.end);
+                    
                     // Check if this renewal period overlaps with the gap
-                    const renewalStart = renewal.startDate.toISOString().split('T')[0];
-                    const renewalEnd = renewal.endDate.toISOString().split('T')[0];
-                    if (renewalStart <= gap.end && renewalEnd >= gap.start) {
-                        // Calculate daily rate and multiply by gap days
-                        const renewalDays = Math.ceil((renewal.endDate - renewal.startDate) / (1000 * 60 * 60 * 24)) + 1;
-                        const dailyRate = Math.abs(renewal.netAmount) / renewalDays; // Use absolute value for consistent calculation
-                        gapValue += dailyRate * gap.days;
+                    if (renewalStart <= gapEnd && renewalEnd >= gapStart) {
+                        // Calculate the actual overlapping period
+                        const overlapStart = renewalStart > gapStart ? renewalStart : gapStart;
+                        const overlapEnd = renewalEnd < gapEnd ? renewalEnd : gapEnd;
+                        
+                        // Calculate overlapping days
+                        const overlapDays = Math.ceil((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24)) + 1;
+                        
+                        if (overlapDays > 0) {
+                            // Calculate total days in the renewal period
+                            const renewalTotalDays = Math.ceil((renewalEnd - renewalStart) / (1000 * 60 * 60 * 24)) + 1;
+                            
+                            // Calculate daily rate (handle potential division by zero)
+                            const dailyRate = renewalTotalDays > 0 ? Math.abs(renewal.netAmount) / renewalTotalDays : 0;
+                            
+                            // Add proportional value for the overlapping period
+                            gapValue += dailyRate * overlapDays;
+                        }
                     }
                 });
                 
@@ -692,17 +709,38 @@ async function fileSupportTicket(isAutomated = false) {
         const transactions = window.mpacTransactionEnhancerState.analysisData?.transactions || [];
         const renewals = transactions.filter(t => t.saleType !== 'refund');
         
+        // More robust gap value calculation
         renewals.forEach(renewal => {
-          const renewalStart = renewal.startDate.toISOString().split('T')[0];
-          const renewalEnd = renewal.endDate.toISOString().split('T')[0];
-          if (renewalStart <= gap.end && renewalEnd >= gap.start) {
-            const renewalDays = Math.ceil((renewal.endDate - renewal.startDate) / (1000 * 60 * 60 * 24)) + 1;
-            const dailyRate = Math.abs(renewal.netAmount) / renewalDays;
-            gapValue += dailyRate * gap.days;
+          // Convert dates to Date objects for proper comparison
+          const renewalStart = new Date(renewal.startDate);
+          const renewalEnd = new Date(renewal.endDate);
+          const gapStart = new Date(gap.start);
+          const gapEnd = new Date(gap.end);
+          
+          // Check if this renewal period overlaps with the gap
+          if (renewalStart <= gapEnd && renewalEnd >= gapStart) {
+            // Calculate the actual overlapping period
+            const overlapStart = renewalStart > gapStart ? renewalStart : gapStart;
+            const overlapEnd = renewalEnd < gapEnd ? renewalEnd : gapEnd;
+            
+            // Calculate overlapping days
+            const overlapDays = Math.ceil((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24)) + 1;
+            
+            if (overlapDays > 0) {
+              // Calculate total days in the renewal period
+              const renewalTotalDays = Math.ceil((renewalEnd - renewalStart) / (1000 * 60 * 60 * 24)) + 1;
+              
+              // Calculate daily rate (handle potential division by zero)
+              const dailyRate = renewalTotalDays > 0 ? Math.abs(renewal.netAmount) / renewalTotalDays : 0;
+              
+              // Add proportional value for the overlapping period
+              gapValue += dailyRate * overlapDays;
+            }
           }
         });
         
-        const gapValueText = gapValue > 0 ? ` (Value: ${formatAmount(gapValue)})` : '';
+        // Format the gap value text - always show value if calculable
+        const gapValueText = gapValue >= 0 ? ` (Value: ${formatAmount(gapValue)})` : '';
         description += `Gap from ${gap.start} to ${gap.end} (${gap.days} days)${gapValueText}\n`;
         newTicketedIds.push(getGapId(gap));
       });
