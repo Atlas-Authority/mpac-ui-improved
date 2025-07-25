@@ -124,6 +124,8 @@ function populateUI(settings) {
 
 // Setup event listeners for all settings controls
 function setupEventListeners() {
+  // Reset to defaults button
+  document.getElementById('resetDefaultsButton').addEventListener('click', resetToDefaults);
   // Batch limit slider and "All" checkbox
   const batchLimit = document.getElementById('batchLimit');
   const batchLimitAll = document.getElementById('batchLimitAll');
@@ -312,6 +314,26 @@ async function resetProcessingState() {
     console.error('Error resetting processing state from popup:', error);
     alert('Error resetting processing state. Check console for details.');
   }
+}
+
+// Reset all settings to defaults
+function resetToDefaults() {
+  // Confirm with user before resetting
+  if (!confirm('Are you sure you want to reset all settings to their default values?')) {
+    return;
+  }
+  
+  // Save default settings to storage
+  chrome.storage.local.set({ [SETTINGS_KEY]: DEFAULT_SETTINGS }, function() {
+    // Repopulate UI with default values
+    populateUI(DEFAULT_SETTINGS);
+    
+    // Show save indicator
+    showSaveIndicator();
+    
+    // Show confirmation message
+    alert('All settings have been reset to their default values.');
+  });
 }
 
 // Export settings utilities for content script access
