@@ -1068,7 +1068,9 @@ async function runAnalysisAndTicketing(isAutomated = false) {
 
         // 3. File support ticket if needed
         const analysisData = window.mpacTransactionEnhancerState.analysisData;
-        if (analysisData && (analysisData.gaps.length > 0 || analysisData.lateRefunds.length > 0)) {
+        const hasIssues = analysisData && (analysisData.gaps.length > 0 || analysisData.lateRefunds.length > 0);
+        
+        if (hasIssues) {
             console.log('🎫 Issues found, filing support ticket...');
             await fileSupportTicket(isAutomated);
             if (isAutomated) {
@@ -1109,6 +1111,9 @@ async function runAnalysisAndTicketing(isAutomated = false) {
             `;
             completionBanner.textContent = '✅ Automated Analysis Complete - Check results below';
             document.body.prepend(completionBanner);
+            
+            // Handle auto-closing of tab based on settings and analysis results
+            await maybeCloseTab(hasIssues);
         }
     } catch (error) {
         console.error('❌ Error during automated analysis and ticketing:', error);
@@ -1139,6 +1144,9 @@ async function runAnalysisAndTicketing(isAutomated = false) {
             `;
             errorBanner.textContent = '❌ Automated Analysis Error - Check console for details';
             document.body.prepend(errorBanner);
+            
+            // Handle auto-closing of tab even in case of errors
+            await maybeCloseTab(true); // Treat errors as having issues
         } else {
             alert('An error occurred during analysis. Check the console for details.');
         }
@@ -2614,6 +2622,195 @@ async function markAsResolved(orderId, aen, row) {
     showModal('Resolution Recorded', `Refund ${orderId} has been marked as resolved.`);
     
     console.log(`Marked order ${orderId} as resolved for AEN ${aen}`);
+}
+
+// Handle auto-closing of tab based on settings and analysis results
+async function maybeCloseTab(hasIssues) {
+    // Load fresh settings from storage to ensure we have the latest values
+    const settings = await loadUserSettings();
+    
+    // Log detailed settings information for debugging
+    console.log('🔍 Tab closing decision logic:', {
+        hasIssues: hasIssues,
+        autoCloseClean: settings.autoCloseClean,
+        autoCloseMinutes: settings.autoCloseMinutes,
+        allSettings: {
+            autoCloseClean: settings.autoCloseClean,
+            autoCloseMinutes: settings.autoCloseMinutes,
+            keepLastTabs: settings.keepLastTabs
+        }
+    });
+    
+    // Check if we should close the tab immediately (no issues and autoCloseClean enabled)
+    if (!hasIssues && settings.autoCloseClean) {
+        console.log('✅ No issues found and autoCloseClean enabled. Closing tab immediately.');
+        
+        // Add a visual indicator that the tab will close
+        const closingBanner = document.createElement('div');
+        closingBanner.id = 'tab-closing-banner';
+        closingBanner.style.cssText = `
+            position: fixed;
+            top: 40px;
+            left: 0;
+            right: 0;
+            background: #2196F3;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            z-index: 10001;
+            border-bottom: 3px solid #1976D2;
+        `;
+        closingBanner.textContent = 'Tab closing immediately...';
+        document.body.prepend(closingBanner);
+        
+        // Try to close the tab immediately
+        try {
+            // Check if window.close is available and allowed
+            if (window.close) {
+                console.log('🔄 Attempting to close tab with window.close()...');
+                window.close();
+                console.log('✅ Tab closed successfully.');
+                // If window.close() doesn't work (e.g., tab was not opened by script), 
+                // update the banner to inform user
+                closingBanner.textContent = 'Tab should have closed. If not, please close manually.';
+                closingBanner.style.background = '#ff9800';
+                closingBanner.style.borderBottomColor = '#f57c00';
+            } else {
+                console.log('⚠️ window.close() not available.');
+                closingBanner.textContent = 'Unable to close tab automatically. Please close manually.';
+                closingBanner.style.background = '#f44336';
+                closingBanner.style.borderBottomColor = '#d32f2f';
+            }
+        } catch (error) {
+            console.error('❌ Error closing tab:', error);
+            closingBanner.textContent = 'Unable to close tab automatically. Please close manually.';
+            closingBanner.style.background = '#f44336';
+            closingBanner.style.borderBottomColor = '#d32f2f';
+        }
+        return;
+    } else if (!hasIssues) {
+        console.log('ℹ️ No issues found, but autoCloseClean is disabled. Checking other conditions...');
+        console.log('   autoCloseClean value:', settings.autoCloseClean);
+    }
+    
+    // Check if we should close the tab after a delay (issues found and autoCloseMinutes > 0)
+    if (hasIssues && settings.autoCloseMinutes > 0) {
+        console.log(`⚠️ Issues found and autoCloseMinutes set to ${settings.autoCloseMinutes}. Closing tab after delay.`);
+        
+        // Add a visual indicator that the tab will close after a delay
+        const closingBanner = document.createElement('div');
+        closingBanner.id = 'tab-closing-banner';
+        closingBanner.style.cssText = `
+            position: fixed;
+            top: 40px;
+            left: 0;
+            right: 0;
+            background: #ff9800;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            z-index: 10001;
+            border-bottom: 3px solid #f57c00;
+        `;
+        closingBanner.textContent = `Tab will close in ${settings.autoCloseMinutes} minute(s)...`;
+        document.body.prepend(closingBanner);
+        
+        // Wait for the specified delay before closing
+        await new Promise(resolve => setTimeout(resolve, settings.autoCloseMinutes * 60 * 1000));
+        
+        // Try to close the tab
+        try {
+            // Check if window.close is available and allowed
+            if (window.close) {
+                console.log('🔄 Attempting to close tab with window.close() after delay...');
+                window.close();
+                console.log('✅ Tab closed successfully after delay.');
+                // If window.close() doesn't work, update the banner to inform user
+                closingBanner.textContent = 'Tab should have closed. If not, please close manually.';
+                closingBanner.style.background = '#2196F3';
+                closingBanner.style.borderBottomColor = '#1976D2';
+            } else {
+                console.log('⚠️ window.close() not available.');
+                closingBanner.textContent = 'Unable to close tab automatically. Please close manually.';
+                closingBanner.style.background = '#f44336';
+                closingBanner.style.borderBottomColor = '#d32f2f';
+            }
+        } catch (error) {
+            console.error('❌ Error closing tab:', error);
+            closingBanner.textContent = 'Unable to close tab automatically. Please close manually.';
+            closingBanner.style.background = '#f44336';
+            closingBanner.style.borderBottomColor = '#d32f2f';
+        }
+        return;
+    } else if (hasIssues) {
+        console.log('ℹ️ Issues found, but autoCloseMinutes is 0 or negative. Not closing tab.');
+        console.log('   autoCloseMinutes value:', settings.autoCloseMinutes);
+    }
+    
+    // New feature: Close on completion if there are no errors or issues found
+    // This is an additional option to autoCloseClean
+    if (!hasIssues && settings.autoCloseMinutes > 0) {
+        console.log(`✅ No issues found and autoCloseMinutes set to ${settings.autoCloseMinutes}. Closing tab after delay.`);
+        
+        // Add a visual indicator that the tab will close after a delay
+        const closingBanner = document.createElement('div');
+        closingBanner.id = 'tab-closing-banner';
+        closingBanner.style.cssText = `
+            position: fixed;
+            top: 40px;
+            left: 0;
+            right: 0;
+            background: #4CAF50;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            z-index: 10001;
+            border-bottom: 3px solid #45a049;
+        `;
+        closingBanner.textContent = `Tab will close in ${settings.autoCloseMinutes} minute(s) (no issues found)...`;
+        document.body.prepend(closingBanner);
+        
+        // Wait for the specified delay before closing
+        await new Promise(resolve => setTimeout(resolve, settings.autoCloseMinutes * 60 * 1000));
+        
+        // Try to close the tab
+        try {
+            // Check if window.close is available and allowed
+            if (window.close) {
+                console.log('🔄 Attempting to close tab with window.close() after delay (no issues)...');
+                window.close();
+                console.log('✅ Tab closed successfully after delay (no issues).');
+                // If window.close() doesn't work, update the banner to inform user
+                closingBanner.textContent = 'Tab should have closed. If not, please close manually.';
+                closingBanner.style.background = '#2196F3';
+                closingBanner.style.borderBottomColor = '#1976D2';
+            } else {
+                console.log('⚠️ window.close() not available.');
+                closingBanner.textContent = 'Unable to close tab automatically. Please close manually.';
+                closingBanner.style.background = '#f44336';
+                closingBanner.style.borderBottomColor = '#d32f2f';
+            }
+        } catch (error) {
+            console.error('❌ Error closing tab:', error);
+            closingBanner.textContent = 'Unable to close tab automatically. Please close manually.';
+            closingBanner.style.background = '#f44336';
+            closingBanner.style.borderBottomColor = '#d32f2f';
+        }
+        return;
+    } else if (!hasIssues) {
+        console.log('ℹ️ No issues found, but autoCloseMinutes is 0 or negative. Not closing tab.');
+        console.log('   autoCloseMinutes value:', settings.autoCloseMinutes);
+    }
+    
+    console.log('ℹ️ Tab will remain open based on settings and analysis results.');
+    console.log('🔍 Decision logic summary:');
+    console.log('   - hasIssues:', hasIssues);
+    console.log('   - autoCloseClean:', settings.autoCloseClean);
+    console.log('   - autoCloseMinutes:', settings.autoCloseMinutes);
+    console.log('   - All settings:', settings);
 }
 
 // The URL rewriting is now handled within processTable, which is triggered
