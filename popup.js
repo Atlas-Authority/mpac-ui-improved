@@ -2,7 +2,7 @@
 const DEFAULT_SETTINGS = {
   // Processing
   batchLimit: 5,                    // -1 for unlimited (when "All" is checked)
-  lateRefundDays: 30,
+  lateRefundDays: 84,
   autoTicketing: 'prefill',         // 'manual', 'prefill', 'analysis'
   
   // Behavior  
