@@ -4,26 +4,32 @@ const DEFAULT_SETTINGS = {
   batchLimit: 5,                    // -1 for unlimited (when "All" is checked)
   lateRefundDays: 84,
   autoTicketing: 'prefill',         // 'manual', 'prefill', 'analysis'
-  
-  // Behavior  
+
+  // Gap Analysis
+  gapCalculationMode: 'csv-enhanced', // 'standard', 'conservative', 'csv-enhanced'
+  gapDeactivationBuffer: 21,        // Days to subtract from renewal end date for failed payments
+  autoDownloadCsvForGaps: true,     // Automatically download CSV when gaps are found
+  useCsvPaymentData: true,          // Use CSV payment data for more accurate gap calculations
+
+  // Behavior
   defaultChecked: true,
   autoAnalysis: false,
   autoExpand: true,
   skipIfNoNew: true,
-  
+
   // Tab Management
-  autoCloseClean: false,
+  autoCloseClean: true,
   autoCloseMinutes: 0,              // 0 = never
   keepLastTabs: 10,                 // 0 = unlimited
-  
+
   // Notifications
   notificationSeconds: 10,          // 0 = never
   enableRelationshipNotifs: true,
-  
+
   // URL Handling
   urlRewritingEnabled: true,
   urlOpenNewTab: true,
-  
+
   // Debug Settings
   debug: {
     pageStabilizeMs: 3000,
@@ -478,12 +484,29 @@ async function analyzeMaintenancePeriods() {
             const timeDiff = refund.saleDate.getTime() - originalTx.saleDate.getTime();
 
             if (timeDiff > thresholdMs) {
-                const daysDiff = Math.round(timeDiff / (1000 * 3600 * 24));
-                lateRefunds.push({
-                    refund,
-                    originalTx,
-                    days: daysDiff
-                });
+                // Check for any rebill that covers the same period
+                // A rebill "resolves" the late refund if:
+                // 1. It covers the same maintenance period
+                // 2. It occurs after the original transaction
+                // 3. It occurs before or around the time of the refund (within a reasonable window)
+                
+                const rebillExists = renewals.some(r =>
+                    r.periodStr === refund.periodStr &&
+                    r.saleDate > originalTx.saleDate &&  // After original
+                    r.saleDate <= refund.saleDate        // Before or on refund date
+                );
+                
+                // Only flag as late refund if there's no rebill that resolves it
+                if (!rebillExists) {
+                    const daysDiff = Math.round(timeDiff / (1000 * 3600 * 24));
+                    lateRefunds.push({
+                        refund,
+                        originalTx,
+                        days: daysDiff
+                    });
+                }
+                // Optional: We could also track rebilled late refunds separately
+                // for reporting purposes
             }
         }
     }
@@ -501,6 +524,8 @@ async function analyzeMaintenancePeriods() {
 
         if (matchingRefundIndex !== -1) {
             usedRefunds.add(matchingRefundIndex);
+            // Store the refund for potential gap adjustment
+            renewal.associatedRefund = refunds[matchingRefundIndex];
         } else {
             activeRenewals.push(renewal);
         }
@@ -529,34 +554,120 @@ async function analyzeMaintenancePeriods() {
     }
 
     const gaps = [];
+    const gapSettings = getUserSettings();
+
     for (let i = 0; i < mergedPeriods.length - 1; i++) {
-        const currentEndDate = mergedPeriods[i].endDate;
-        const nextStartDate = mergedPeriods[i + 1].startDate;
+const currentPeriod = mergedPeriods[i];
+const nextPeriod = mergedPeriods[i + 1];
 
-        const gapStartDate = new Date(currentEndDate.getTime());
-        gapStartDate.setUTCDate(gapStartDate.getUTCDate() + 1);
+let effectiveEndDate = new Date(currentPeriod.endDate.getTime());
 
-        if (gapStartDate < nextStartDate) {
-            const gapEndDate = new Date(nextStartDate.getTime());
-            gapEndDate.setUTCDate(gapEndDate.getUTCDate() - 1);
+// Apply gap calculation based on mode
+if (gapSettings.gapCalculationMode === 'conservative' && currentPeriod.associatedRefund) {
+    // Conservative mode: If this period has an associated refund, assume payment failure
+    // Subtract buffer days to account for retry period
+    effectiveEndDate.setUTCDate(effectiveEndDate.getUTCDate() - gapSettings.gapDeactivationBuffer);
+    console.log(`Conservative gap calculation: Adjusted end date from ${currentPeriod.endDate.toISOString().split('T')[0]} to ${effectiveEndDate.toISOString().split('T')[0]} (subtracted ${gapSettings.gapDeactivationBuffer} days for payment retry buffer)`);
+} else if (gapSettings.gapCalculationMode === 'csv-enhanced') {
+    // CSV-enhanced mode: Use CSV data for more accurate calculations
+    // This will be enhanced later in the CSV analysis section
+    console.log(`CSV-enhanced mode: Will use CSV payment data for gap calculation`);
+}
 
-            if (gapEndDate >= gapStartDate) {
-                const timeDiff = gapEndDate.getTime() - gapStartDate.getTime();
-                const dayDiff = Math.round(timeDiff / (1000 * 3600 * 24)) + 1;
-                gaps.push({
-                    start: gapStartDate.toISOString().split('T')[0],
-                    end: gapEndDate.toISOString().split('T')[0],
-                    days: dayDiff
-                });
+const gapStartDate = new Date(effectiveEndDate.getTime());
+gapStartDate.setUTCDate(gapStartDate.getUTCDate() + 1);
+
+if (gapStartDate < nextPeriod.startDate) {
+    const gapEndDate = new Date(nextPeriod.startDate.getTime());
+    gapEndDate.setUTCDate(gapEndDate.getUTCDate() - 1);
+
+    if (gapEndDate >= gapStartDate) {
+        const timeDiff = gapEndDate.getTime() - gapStartDate.getTime();
+        const dayDiff = Math.round(timeDiff / (1000 * 3600 * 24)) + 1;
+
+        // Calculate gap value and collect overlapping Order IDs
+        let gapValue = 0;
+        let overlappingOrderIds = [];
+        renewals.forEach(renewal => {
+            // Convert dates to Date objects for proper comparison
+            const renewalStart = new Date(renewal.startDate);
+            const renewalEnd = new Date(renewal.endDate);
+            const gapStart = new Date(gapStartDate);
+            const gapEnd = new Date(gapEndDate);
+
+            // Check if this renewal period overlaps with the gap
+            if (renewalStart <= gapEnd && renewalEnd >= gapStart) {
+                // Calculate the actual overlapping period
+                const overlapStart = renewalStart > gapStart ? renewalStart : gapStart;
+                const overlapEnd = renewalEnd < gapEnd ? renewalEnd : gapEnd;
+
+                // Calculate overlapping days
+                const overlapDays = Math.ceil((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24)) + 1;
+
+                if (overlapDays > 0) {
+                    // Calculate total days in the renewal period
+                    const renewalTotalDays = Math.ceil((renewalEnd - renewalStart) / (1000 * 60 * 60 * 24)) + 1;
+
+                    // Calculate daily rate (handle potential division by zero)
+                    const dailyRate = renewalTotalDays > 0 ? Math.abs(renewal.netAmount) / renewalTotalDays : 0;
+
+                    // Add proportional value for the overlapping period
+                    gapValue += dailyRate * overlapDays;
+
+                    // Collect Order ID
+                    if (renewal.orderId) {
+                        overlappingOrderIds.push(renewal.orderId);
+                    }
+                }
             }
+        });
+
+        gaps.push({
+            start: gapStartDate.toISOString().split('T')[0],
+            end: gapEndDate.toISOString().split('T')[0],
+            days: dayDiff,
+            calculationMode: gapSettings.gapCalculationMode,
+            adjustedForRefund: currentPeriod.associatedRefund ? true : false,
+            orderIds: [...new Set(overlappingOrderIds)] // Unique Order IDs
+        });
+    }
+}
+}
+
+    // --- Enhanced Analysis with CSV Data ---
+    const csvSettings = getUserSettings();
+    let enhancedGaps = gaps;
+
+    if ((csvSettings.autoDownloadCsvForGaps && gaps.length > 0 && csvSettings.useCsvPaymentData) ||
+        csvSettings.gapCalculationMode === 'csv-enhanced') {
+        console.log('analyzeMaintenancePeriods: Gaps found, attempting CSV download for enhanced analysis...');
+
+        try {
+            const csvText = await downloadCsvForGapAnalysis(aen);
+            if (csvText) {
+                const paymentData = parseCsvPaymentData(csvText);
+
+                // Enhance gaps with CSV payment data
+                enhancedGaps = gaps.map(gap =>
+                    calculateGapWithCsvData(gap, paymentData, transactions)
+                );
+
+                console.log('analyzeMaintenancePeriods: Enhanced gaps with CSV data:', enhancedGaps);
+            } else {
+                console.log('analyzeMaintenancePeriods: CSV download failed, using standard gap analysis');
+            }
+        } catch (error) {
+            console.error('analyzeMaintenancePeriods: Error in CSV analysis:', error);
+            console.log('analyzeMaintenancePeriods: Falling back to standard gap analysis');
         }
     }
 
     // --- Store Analysis Data for Ticketing ---
     window.mpacTransactionEnhancerState.analysisData = {
-        gaps,
+        gaps: enhancedGaps,
         lateRefunds,
-        transactions // Include transactions for value calculations in tickets
+        transactions, // Include transactions for value calculations in tickets
+        csvEnhanced: csvSettings.useCsvPaymentData && enhancedGaps.some(g => g.csvValidated)
     };
 
     // --- Display Results ---
@@ -578,40 +689,17 @@ async function analyzeMaintenancePeriods() {
                 const gapId = getGapId(gap);
                 const isTicketed = ticketedIds.has(gapId);
                 
-                // Calculate gap value using net revenue from all renewals that overlap with the gap
-                // (regardless of whether they were later refunded, since they provided coverage during the gap)
-                let gapValue = 0;
-                renewals.forEach(renewal => {
-                    // Convert dates to Date objects for proper comparison
-                    const renewalStart = new Date(renewal.startDate);
-                    const renewalEnd = new Date(renewal.endDate);
-                    const gapStart = new Date(gap.start);
-                    const gapEnd = new Date(gap.end);
-                    
-                    // Check if this renewal period overlaps with the gap
-                    if (renewalStart <= gapEnd && renewalEnd >= gapStart) {
-                        // Calculate the actual overlapping period
-                        const overlapStart = renewalStart > gapStart ? renewalStart : gapStart;
-                        const overlapEnd = renewalEnd < gapEnd ? renewalEnd : gapEnd;
-                        
-                        // Calculate overlapping days
-                        const overlapDays = Math.ceil((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24)) + 1;
-                        
-                        if (overlapDays > 0) {
-                            // Calculate total days in the renewal period
-                            const renewalTotalDays = Math.ceil((renewalEnd - renewalStart) / (1000 * 60 * 60 * 24)) + 1;
-                            
-                            // Calculate daily rate (handle potential division by zero)
-                            const dailyRate = renewalTotalDays > 0 ? Math.abs(renewal.netAmount) / renewalTotalDays : 0;
-                            
-                            // Add proportional value for the overlapping period
-                            gapValue += dailyRate * overlapDays;
-                        }
-                    }
-                });
-                
-                const gapValueText = gapValue > 0 ? ` (Value: ${formatAmount(gapValue)})` : '';
-                html += `<li>Gap from ${gap.start} to ${gap.end} (${gap.days} days)${gapValueText} ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
+                // Use pre-calculated gap value and Order IDs from the gap object
+                const gapValueText = gap.value > 0 ? ` (Value: ${formatAmount(gap.value)})` : '';
+                const orderIdsText = gap.orderIds && gap.orderIds.length > 0 ? ` <span style="color: #6b7280; font-size: 0.9em;">(Order IDs: ${gap.orderIds.join(', ')})</span>` : '';
+                const calculationNote = gap.adjustedForRefund ? ` <span style="color: #d97706; font-style: italic;">(Adjusted for payment failure)</span>` : '';
+                const modeNote = gap.calculationMode === 'conservative' ? ` <span style="color: #059669; font-size: 0.9em;">[Conservative mode]</span>` :
+                                gap.calculationMode === 'csv-enhanced' ? ` <span style="color: #7c3aed; font-size: 0.9em;">[CSV Enhanced]</span>` : '';
+                const csvNote = gap.csvValidated ? ` <span style="color: #7c3aed; font-size: 0.9em;">[CSV Validated]</span>` : '';
+                const paymentFailureNote = gap.paymentFailureDetected ? ` <span style="color: #dc2626; font-style: italic;">(Payment failure confirmed)</span>` : '';
+                const deactivationNote = gap.deactivationDate ? ` <span style="color: #92400e; font-size: 0.85em;">(Deactivated: ${gap.deactivationDate})</span>` : '';
+   
+                html += `<li>Gap from ${gap.start} to ${gap.end} (${gap.days} days)${gapValueText}${orderIdsText}${calculationNote}${modeNote}${csvNote}${paymentFailureNote}${deactivationNote} ${isTicketed ? '<span style="color: #006644; font-weight: bold;">(Ticketed)</span>' : ''}</li>`;
             });
             html += '</ul>';
         }
@@ -704,44 +792,10 @@ async function fileSupportTicket(isAutomated = false) {
       description += 'New Maintenance Gaps Found:\n';
       description += '-----------------\n';
       newGaps.forEach(gap => {
-        // Calculate gap value for ticket description (same logic as UI display)
-        let gapValue = 0;
-        const transactions = window.mpacTransactionEnhancerState.analysisData?.transactions || [];
-        const renewals = transactions.filter(t => t.saleType !== 'refund');
-        
-        // More robust gap value calculation
-        renewals.forEach(renewal => {
-          // Convert dates to Date objects for proper comparison
-          const renewalStart = new Date(renewal.startDate);
-          const renewalEnd = new Date(renewal.endDate);
-          const gapStart = new Date(gap.start);
-          const gapEnd = new Date(gap.end);
-          
-          // Check if this renewal period overlaps with the gap
-          if (renewalStart <= gapEnd && renewalEnd >= gapStart) {
-            // Calculate the actual overlapping period
-            const overlapStart = renewalStart > gapStart ? renewalStart : gapStart;
-            const overlapEnd = renewalEnd < gapEnd ? renewalEnd : gapEnd;
-            
-            // Calculate overlapping days
-            const overlapDays = Math.ceil((overlapEnd - overlapStart) / (1000 * 60 * 60 * 24)) + 1;
-            
-            if (overlapDays > 0) {
-              // Calculate total days in the renewal period
-              const renewalTotalDays = Math.ceil((renewalEnd - renewalStart) / (1000 * 60 * 60 * 24)) + 1;
-              
-              // Calculate daily rate (handle potential division by zero)
-              const dailyRate = renewalTotalDays > 0 ? Math.abs(renewal.netAmount) / renewalTotalDays : 0;
-              
-              // Add proportional value for the overlapping period
-              gapValue += dailyRate * overlapDays;
-            }
-          }
-        });
-        
-        // Format the gap value text - always show value if calculable
-        const gapValueText = gapValue >= 0 ? ` (Value: ${formatAmount(gapValue)})` : '';
-        description += `Gap from ${gap.start} to ${gap.end} (${gap.days} days)${gapValueText}\n`;
+        // Use pre-calculated gap value and Order IDs from the gap object
+        const gapValueText = gap.value >= 0 ? ` (Value: ${formatAmount(gap.value)})` : '';
+        const orderIdsText = gap.orderIds && gap.orderIds.length > 0 ? ` - Related Order IDs: ${gap.orderIds.join(', ')}` : '';
+        description += `Gap from ${gap.start} to ${gap.end} (${gap.days} days)${gapValueText}${orderIdsText}\n`;
         newTicketedIds.push(getGapId(gap));
       });
       description += '-----------------\n';
@@ -749,16 +803,18 @@ async function fileSupportTicket(isAutomated = false) {
     }
 
     if (newLateRefunds.length > 0) {
-      description += 'New Late Refunds (> 30 days):\n';
+      const settings = getUserSettings();
+      const thresholdDays = settings.lateRefundDays;
+      description += `New Late Refunds (> ${thresholdDays} days):\n`;
       description += '-----------------\n';
       newLateRefunds.forEach(item => {
         const refundValue = Math.abs(item.refund.netAmount);
         const refundValueText = refundValue > 0 ? ` (Value: ${formatAmount(refundValue)})` : '';
-        description += `Refund on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr}${refundValueText}\n`;
+        description += `Refund ${item.refund.orderId} on ${item.refund.saleDate.toISOString().split('T')[0]} for a transaction from ${item.originalTx.saleDate.toISOString().split('T')[0]} (${item.days} days later). Period: ${item.refund.periodStr}${refundValueText}\n`;
         newTicketedIds.push(getLateRefundId(item));
       });
       description += '-----------------\n';
-      description += 'Please explain why this customer received refunds outside of the 30 day period without first getting approval from us.\n\n';
+      description += `Please explain why this customer received refunds outside of the ${thresholdDays} day period without first getting approval from us.\n\n`;
     }
 
     const supportData = {
@@ -1292,7 +1348,8 @@ async function processRefundsSequentially() {
     }
 
     if (urlsToProcess.length > 0) {
-        const settings = getUserSettings();
+        // Reload settings to ensure we have the latest values from popup changes
+        const settings = await loadUserSettings();
         const batchLimit = settings.batchLimit;
         
         let limitedUrls;
@@ -2660,6 +2717,265 @@ async function markAsResolved(orderId, aen, row) {
     showModal('Resolution Recorded', `Refund ${orderId} has been marked as resolved.`);
     
     console.log(`Marked order ${orderId} as resolved for AEN ${aen}`);
+}
+
+// --- CSV Analysis Functions ---
+
+// Automatically download CSV when gaps are found
+async function downloadCsvForGapAnalysis(aen) {
+    console.log(`downloadCsvForGapAnalysis: Attempting to download CSV for AEN ${aen}`);
+
+    try {
+        // Construct CSV URL directly instead of relying on UI
+        const vendorId = extractVendorIdFromUrl();
+        if (!vendorId) {
+            console.log('downloadCsvForGapAnalysis: Could not extract vendor ID from URL');
+            return null;
+        }
+
+        const csvUrl = `https://marketplace.atlassian.com/rest/2/vendors/${vendorId}/reporting/sales/transactions/export?accept=csv&excludeZeroTransactions=true&text=${encodeURIComponent(aen)}`;
+        console.log(`downloadCsvForGapAnalysis: Constructed CSV URL: ${csvUrl}`);
+
+        // Download the CSV directly
+        const response = await fetch(csvUrl, {
+            method: 'GET',
+            credentials: 'include', // Include cookies for authentication
+            headers: {
+                'Accept': 'text/csv',
+                'Cache-Control': 'no-cache'
+            }
+        });
+
+        if (!response.ok) {
+            console.error(`downloadCsvForGapAnalysis: HTTP error! status: ${response.status}`);
+            if (response.status === 401) {
+                console.log('downloadCsvForGapAnalysis: Authentication required - user may need to log in');
+            } else if (response.status === 403) {
+                console.log('downloadCsvForGapAnalysis: Access forbidden - check permissions');
+            }
+            return null;
+        }
+
+        const csvText = await response.text();
+        console.log(`downloadCsvForGapAnalysis: Downloaded CSV with ${csvText.split('\n').length} lines`);
+        return csvText;
+
+    } catch (error) {
+        console.error('downloadCsvForGapAnalysis: Error downloading CSV:', error);
+
+        // Fallback: Try UI-based approach if direct URL fails
+        console.log('downloadCsvForGapAnalysis: Attempting fallback UI-based download...');
+        return await downloadCsvViaUI(aen);
+    }
+}
+
+// Fallback method using UI interaction (original approach)
+async function downloadCsvViaUI(aen) {
+    try {
+        // Find the export button
+        const exportButton = document.querySelector('[data-testid="export-icon"]');
+        if (!exportButton) {
+            console.log('downloadCsvViaUI: Export button not found');
+            return null;
+        }
+
+        // Click the export button to open dropdown
+        exportButton.click();
+
+        // Wait for dropdown to appear
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Find and click the CSV download link
+        const csvLink = document.querySelector('[data-testid="csv-link"]');
+        if (!csvLink) {
+            console.log('downloadCsvViaUI: CSV link not found');
+            return null;
+        }
+
+        // Get the CSV URL and download
+        const csvUrl = csvLink.href;
+        console.log(`downloadCsvViaUI: Found CSV URL: ${csvUrl}`);
+
+        const response = await fetch(csvUrl);
+        const csvText = await response.text();
+
+        console.log(`downloadCsvViaUI: Downloaded CSV with ${csvText.split('\n').length} lines via UI fallback`);
+        return csvText;
+
+    } catch (error) {
+        console.error('downloadCsvViaUI: Error in UI fallback:', error);
+        return null;
+    }
+}
+
+// Extract vendor ID from the current page URL
+function extractVendorIdFromUrl() {
+    const urlMatch = window.location.pathname.match(/\/manage\/vendors\/(\d+)\//);
+    if (urlMatch && urlMatch[1]) {
+        const vendorId = urlMatch[1];
+        console.log(`extractVendorIdFromUrl: Extracted vendor ID: ${vendorId}`);
+        return vendorId;
+    }
+
+    console.log('extractVendorIdFromUrl: Could not extract vendor ID from URL');
+    return null;
+}
+
+// Parse CSV data to extract payment information
+function parseCsvPaymentData(csvText) {
+    console.log('parseCsvPaymentData: Parsing CSV data...');
+
+    const lines = csvText.split('\n');
+    if (lines.length < 2) {
+        console.log('parseCsvPaymentData: CSV has insufficient data');
+        return {};
+    }
+
+    const headers = lines[0].split(',').map(h => h.replace(/"/g, ''));
+    const paymentData = {};
+
+    for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        // Parse CSV line (handle quoted fields with commas)
+        const fields = parseCsvLine(line);
+        if (fields.length !== headers.length) {
+            console.warn(`parseCsvPaymentData: Line ${i} has ${fields.length} fields, expected ${headers.length}`);
+            continue;
+        }
+
+        const rowData = {};
+        headers.forEach((header, index) => {
+            rowData[header] = fields[index].replace(/"/g, '');
+        });
+
+        const transactionId = rowData.transactionId;
+        if (transactionId) {
+            paymentData[transactionId] = {
+                saleDate: rowData.saleDate,
+                paymentStatus: rowData.paymentStatus,
+                dunningStatus: rowData.dunningStatus ? JSON.parse(rowData.dunningStatus.replace(/'/g, '"')) : [],
+                maintenanceStartDate: rowData.maintenanceStartDate,
+                maintenanceEndDate: rowData.maintenanceEndDate,
+                saleType: rowData.saleType,
+                vendorAmount: parseFloat(rowData.vendorAmount) || 0
+            };
+        }
+    }
+
+    console.log(`parseCsvPaymentData: Parsed ${Object.keys(paymentData).length} transactions`);
+    return paymentData;
+}
+
+// Parse a single CSV line handling quoted fields
+function parseCsvLine(line) {
+    const fields = [];
+    let current = '';
+    let inQuotes = false;
+    let i = 0;
+
+    while (i < line.length) {
+        const char = line[i];
+
+        if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+                // Escaped quote
+                current += '"';
+                i += 2;
+            } else {
+                // Toggle quote state
+                inQuotes = !inQuotes;
+                i++;
+            }
+        } else if (char === ',' && !inQuotes) {
+            // Field separator
+            fields.push(current);
+            current = '';
+            i++;
+        } else {
+            current += char;
+            i++;
+        }
+    }
+
+    // Add the last field
+    fields.push(current);
+
+    return fields;
+}
+
+// Extract deactivation date from payment attempts
+function getDeactivationDateFromPaymentData(paymentData, transactionId) {
+    const transaction = paymentData[transactionId];
+    if (!transaction || !transaction.dunningStatus || transaction.dunningStatus.length === 0) {
+        return null;
+    }
+
+    // Find the last payment attempt with no next attempt date (deactivation)
+    const attempts = transaction.dunningStatus;
+    for (let i = attempts.length - 1; i >= 0; i--) {
+        const attempt = attempts[i];
+        if (!attempt.nextPaymentAttemptDate) {
+            // This is the final failed attempt - subscription was deactivated
+            const deactivationDate = new Date(attempt.paymentAttemptDate);
+            console.log(`getDeactivationDateFromPaymentData: Found deactivation date ${deactivationDate.toISOString().split('T')[0]} for transaction ${transactionId}`);
+            return deactivationDate;
+        }
+    }
+
+    return null;
+}
+
+// Enhanced gap calculation using CSV payment data
+function calculateGapWithCsvData(gap, paymentData, transactions) {
+    console.log(`calculateGapWithCsvData: Analyzing gap ${gap.start} to ${gap.end} with CSV data`);
+
+    // Find transactions that overlap with this gap period
+    const overlappingTransactions = transactions.filter(tx => {
+        const txStart = new Date(tx.startDate);
+        const txEnd = new Date(tx.endDate);
+        const gapStart = new Date(gap.start);
+        const gapEnd = new Date(gap.end);
+
+        return txStart <= gapEnd && txEnd >= gapStart;
+    });
+
+    let earliestDeactivation = null;
+    let hasPaymentFailure = false;
+
+    // Check each overlapping transaction for payment failures
+    overlappingTransactions.forEach(tx => {
+        const deactivationDate = getDeactivationDateFromPaymentData(paymentData, tx.orderId);
+        if (deactivationDate) {
+            hasPaymentFailure = true;
+            if (!earliestDeactivation || deactivationDate < earliestDeactivation) {
+                earliestDeactivation = deactivationDate;
+            }
+        }
+    });
+
+    if (hasPaymentFailure && earliestDeactivation) {
+        // Adjust gap start date based on actual deactivation
+        const adjustedGapStart = new Date(earliestDeactivation);
+        adjustedGapStart.setUTCDate(adjustedGapStart.getUTCDate() + 1); // Day after deactivation
+
+        if (adjustedGapStart < new Date(gap.end)) {
+            const adjustedGap = {
+                ...gap,
+                originalStart: gap.start,
+                start: adjustedGapStart.toISOString().split('T')[0],
+                csvValidated: true,
+                deactivationDate: earliestDeactivation.toISOString().split('T')[0],
+                paymentFailureDetected: true
+            };
+
+            console.log(`calculateGapWithCsvData: Adjusted gap from ${gap.start} to ${adjustedGap.start} based on CSV payment data`);
+            return adjustedGap;
+        }
+    }
+
+    return { ...gap, csvValidated: true, paymentFailureDetected: hasPaymentFailure };
 }
 
 // Handle auto-closing of tab based on settings and analysis results

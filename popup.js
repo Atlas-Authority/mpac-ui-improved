@@ -4,15 +4,21 @@ const DEFAULT_SETTINGS = {
   batchLimit: 5,                    // -1 for unlimited (when "All" is checked)
   lateRefundDays: 84,
   autoTicketing: 'prefill',         // 'manual', 'prefill', 'analysis'
-  
-  // Behavior  
+
+  // Gap Analysis
+  gapCalculationMode: 'csv-enhanced', // 'standard', 'conservative', 'csv-enhanced'
+  gapDeactivationBuffer: 21,        // Days to subtract from renewal end date for failed payments
+  autoDownloadCsvForGaps: true,     // Automatically download CSV when gaps are found
+  useCsvPaymentData: true,          // Use CSV payment data for more accurate gap calculations
+
+  // Behavior
   defaultChecked: true,
   autoAnalysis: false,
   autoExpand: true,
   skipIfNoNew: true,
   
   // Tab Management
-  autoCloseClean: false,
+  autoCloseClean: true,
   autoCloseMinutes: 0,              // 0 = never
   keepLastTabs: 10,                 // 0 = unlimited
   
@@ -87,7 +93,20 @@ function populateUI(settings) {
   document.getElementById('lateRefundDaysValue').textContent = settings.lateRefundDays;
   
   document.querySelector(`input[name="autoTicketing"][value="${settings.autoTicketing}"]`).checked = true;
-  
+
+  // Gap Analysis settings
+  const gapCalculationModeElement = document.getElementById('gapCalculationMode');
+  const gapDeactivationBufferElement = document.getElementById('gapDeactivationBuffer');
+  const gapDeactivationBufferValueElement = document.getElementById('gapDeactivationBufferValue');
+  const autoDownloadCsvElement = document.getElementById('autoDownloadCsvForGaps');
+  const useCsvPaymentDataElement = document.getElementById('useCsvPaymentData');
+
+  if (gapCalculationModeElement) gapCalculationModeElement.value = settings.gapCalculationMode;
+  if (gapDeactivationBufferElement) gapDeactivationBufferElement.value = settings.gapDeactivationBuffer;
+  if (gapDeactivationBufferValueElement) gapDeactivationBufferValueElement.textContent = settings.gapDeactivationBuffer;
+  if (autoDownloadCsvElement) autoDownloadCsvElement.checked = settings.autoDownloadCsvForGaps;
+  if (useCsvPaymentDataElement) useCsvPaymentDataElement.checked = settings.useCsvPaymentData;
+
   // Behavior settings
   document.getElementById('defaultChecked').checked = settings.defaultChecked;
   document.getElementById('autoAnalysis').checked = settings.autoAnalysis;
@@ -159,7 +178,24 @@ function setupEventListeners() {
   document.querySelectorAll('input[name="autoTicketing"]').forEach(radio => {
     radio.addEventListener('change', saveSettings);
   });
-  
+
+  // Gap Analysis settings
+  document.getElementById('gapCalculationMode').addEventListener('change', saveSettings);
+  document.getElementById('autoDownloadCsvForGaps').addEventListener('change', saveSettings);
+  document.getElementById('useCsvPaymentData').addEventListener('change', saveSettings);
+
+  const gapDeactivationBuffer = document.getElementById('gapDeactivationBuffer');
+  const gapDeactivationBufferValue = document.getElementById('gapDeactivationBufferValue');
+
+  if (gapDeactivationBuffer && gapDeactivationBufferValue) {
+    gapDeactivationBuffer.addEventListener('input', function() {
+      gapDeactivationBufferValue.textContent = this.value;
+      saveSettings();
+    });
+    // Ensure initial value is displayed
+    gapDeactivationBufferValue.textContent = gapDeactivationBuffer.value;
+  }
+
   // Behavior checkboxes
   document.getElementById('defaultChecked').addEventListener('change', saveSettings);
   document.getElementById('autoAnalysis').addEventListener('change', saveSettings);
@@ -219,7 +255,13 @@ function saveSettings() {
     batchLimit: document.getElementById('batchLimitAll').checked ? -1 : parseInt(document.getElementById('batchLimit').value),
     lateRefundDays: parseInt(document.getElementById('lateRefundDays').value),
     autoTicketing: document.querySelector('input[name="autoTicketing"]:checked').value,
-    
+  
+    // Gap Analysis
+    gapCalculationMode: document.getElementById('gapCalculationMode').value,
+    gapDeactivationBuffer: parseInt(document.getElementById('gapDeactivationBuffer').value),
+    autoDownloadCsvForGaps: document.getElementById('autoDownloadCsvForGaps').checked,
+    useCsvPaymentData: document.getElementById('useCsvPaymentData').checked,
+  
     // Behavior
     defaultChecked: document.getElementById('defaultChecked').checked,
     autoAnalysis: document.getElementById('autoAnalysis').checked,

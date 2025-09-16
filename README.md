@@ -111,6 +111,155 @@ Click the extension icon in your browser toolbar to open the comprehensive setti
 - **Row Wait Time**: Wait time for row loading (default: 2000ms)
 - **Retry Settings**: Configure retry logic for failed operations
 
+## Detailed Settings Reference
+
+### Processing Settings
+
+#### Batch Processing Limit
+- **Purpose**: Controls how many refund transactions to process simultaneously
+- **Options**: 1-50 transactions, or "All" for unlimited processing
+- **Default**: 5 transactions
+- **Impact**: Lower values reduce browser load but increase processing time. Higher values speed up processing but may cause browser slowdowns or timeouts.
+
+#### Late Refund Threshold
+- **Purpose**: Defines the maximum acceptable delay between a transaction and its refund
+- **Range**: 7-120 days
+- **Default**: 84 days
+- **Impact**: Refunds issued after this threshold are flagged as "late refunds" and may trigger support ticket creation
+
+#### Auto-Ticketing Behavior
+- **Manual**: Support tickets are never created automatically
+- **Pre-fill**: Opens support ticket page with pre-filled information but requires manual submission
+- **Analysis Only**: Runs analysis but doesn't create tickets (useful for review-only scenarios)
+- **Default**: Pre-fill
+
+### Gap Analysis Settings
+
+#### Gap Calculation Mode
+- **Standard**: Basic gap detection using transaction dates only
+- **Conservative**: Accounts for payment retry periods when refunds are present (subtracts buffer days)
+- **CSV Enhanced**: Uses actual payment failure data from CSV downloads for precise gap detection
+- **Aggressive**: More sensitive gap detection (may produce more false positives)
+- **Default**: CSV Enhanced
+
+#### Payment Failure Buffer (Days)
+- **Purpose**: Days to subtract from renewal end dates when payment failures are detected
+- **Range**: 7-60 days
+- **Default**: 21 days
+- **Impact**: In conservative mode, this buffer accounts for payment retry periods before declaring gaps
+
+#### Auto-Download CSV for Gap Analysis
+- **Purpose**: Automatically downloads transaction CSV data when gaps are detected
+- **Default**: Enabled
+- **Impact**: Required for CSV-enhanced gap calculations. Disabling falls back to standard mode.
+
+#### Use CSV Payment Data for Accuracy
+- **Purpose**: Incorporates actual payment failure data from CSV for more accurate gap detection
+- **Default**: Enabled
+- **Impact**: Provides precise deactivation dates based on real payment attempts rather than estimated dates
+
+### Behavior Settings
+
+#### Default Checkbox State
+- **Purpose**: Determines whether transaction checkboxes are selected by default
+- **Default**: All checked
+- **Impact**: Affects which transactions are included in sum calculations and processing
+
+#### Auto-Run Analysis on Page Load
+- **Purpose**: Automatically starts maintenance period analysis when transaction pages load
+- **Default**: Disabled
+- **Impact**: Saves time but may slow page loading. Useful for frequent analysis workflows.
+
+#### Auto-Expand Rows During Analysis
+- **Purpose**: Automatically expands transaction detail rows to access maintenance period data
+- **Default**: Enabled
+- **Impact**: Required for gap analysis. Disabling may cause analysis failures.
+
+#### Skip Analysis If No New Transactions
+- **Purpose**: Prevents redundant analysis when no new transactions are detected
+- **Default**: Enabled
+- **Impact**: Improves performance by avoiding unnecessary processing of unchanged data
+
+### Tab Management Settings
+
+#### Auto-Close Tabs with No Issues
+- **Purpose**: Automatically closes transaction tabs that have no gaps or late refunds
+- **Default**: Disabled
+- **Impact**: Reduces tab clutter but may close tabs you want to keep for reference
+
+#### Auto-Close Tabs After (Minutes)
+- **Purpose**: Sets a timer for automatic tab closure after analysis completion
+- **Range**: 0-60 minutes (0 = never)
+- **Default**: Never
+- **Impact**: Helps manage browser resources but may close tabs prematurely
+
+#### Keep Last N Processed Tabs
+- **Purpose**: Limits the number of processed transaction tabs kept open
+- **Range**: 0-50 tabs (0 = unlimited)
+- **Default**: 10 tabs
+- **Impact**: Prevents excessive tab accumulation during batch processing
+
+### Notification Settings
+
+#### Auto-Dismiss After (Seconds)
+- **Purpose**: Controls how long relationship change notifications remain visible
+- **Range**: 0-60 seconds (0 = never auto-dismiss)
+- **Default**: 10 seconds
+- **Impact**: Affects user experience - shorter times reduce distraction, longer times ensure message visibility
+
+#### Relationship Change Notifications
+- **Purpose**: Shows alerts when new transactions affect existing maintenance periods
+- **Default**: Enabled
+- **Impact**: Helps track when previously analyzed periods need re-evaluation due to new activity
+
+### URL Handling Settings
+
+#### URL Rewriting (Licenses → Transactions)
+- **Purpose**: Automatically converts license entitlement URLs to transaction view URLs
+- **Default**: Enabled
+- **Impact**: Streamlines navigation between license and transaction views
+
+#### Open Rewritten URLs in New Tab
+- **Purpose**: Controls whether rewritten URLs open in new tabs or replace current tab
+- **Default**: Enabled
+- **Impact**: New tab preserves current page context, same tab provides seamless navigation
+
+### Debug Settings
+
+#### Page Stabilization Delay (ms)
+- **Purpose**: Wait time for Atlassian Marketplace pages to fully load before processing
+- **Range**: 500-10000ms
+- **Default**: 3000ms
+- **Impact**: Increase if pages aren't loading completely. Decrease for faster processing.
+
+#### Row Expansion Wait (ms)
+- **Purpose**: Wait time for transaction detail rows to expand and load data
+- **Range**: 500-10000ms
+- **Default**: 2000ms
+- **Impact**: Increase if row expansion is failing. Affects gap analysis reliability.
+
+#### Processing Interval (ms)
+- **Purpose**: Delay between processing steps to prevent overwhelming the browser
+- **Range**: 100-5000ms
+- **Default**: 500ms
+- **Impact**: Lower values speed up processing but may cause instability. Higher values are more reliable.
+
+#### Maximum Retry Attempts
+- **Purpose**: How many times to retry failed operations before giving up
+- **Range**: 5-50 attempts
+- **Default**: 15 attempts
+- **Impact**: Higher values improve success rate but increase processing time for problematic pages.
+
+#### Retry Interval (ms)
+- **Purpose**: Delay between retry attempts
+- **Range**: 500-5000ms
+- **Default**: 1000ms
+- **Impact**: Balances between retry frequency and not overwhelming the server.
+
+#### Reset Processing State
+- **Purpose**: Clears all active processing queues, jobs, and cached states
+- **Impact**: Use when processing appears stuck or to start fresh after configuration changes
+
 ## Usage
 
 ### Basic Transaction Management
@@ -345,6 +494,19 @@ When contributing to the extension:
 This extension is provided as-is for vendor reporting enhancement. Feel free to modify and use according to your needs.
 
 ## Version History
+
+- **v1.8** - Advanced Gap Analysis & CSV Integration:
+  - **CSV-Enhanced Gap Calculation**: New calculation mode using actual payment failure data from CSV downloads for precise gap detection
+  - **Automatic CSV Download**: Automatically downloads transaction CSV data when gaps are detected for enhanced analysis
+  - **Payment Failure Detection**: Analyzes dunning status from CSV to identify exact deactivation dates based on failed payment attempts
+  - **Conservative Gap Mode**: Accounts for payment retry periods by subtracting buffer days when refunds are present
+  - **Enhanced Gap Accuracy**: Uses real payment data instead of estimated dates for more reliable gap detection
+  - **CSV Parsing Engine**: Robust CSV parser handling quoted fields and payment status extraction
+  - **Deactivation Date Detection**: Identifies when subscriptions were actually deactivated due to payment failures
+  - **Gap Validation**: CSV-validated gaps show payment failure confirmation and actual deactivation dates
+  - **Improved Settings UI**: Added comprehensive gap analysis controls with detailed explanations
+  - **Payment Data Integration**: Incorporates vendor amount, payment status, and dunning attempt history
+  - **Enhanced Gap Reporting**: Displays calculation mode, CSV validation status, and payment failure indicators
 
 - **v1.7** - Comprehensive feature update:
   - Added sequential refund processing with progress tracking

@@ -292,7 +292,7 @@
             </div>
           </div>
         </div>
-        
+
         <div class="setting-row">
           <div class="setting-label">Late refund threshold</div>
           <div class="setting-control">
@@ -303,7 +303,7 @@
             </div>
           </div>
         </div>
-        
+
         <div class="setting-row">
           <div class="setting-label">Auto-ticketing behavior</div>
           <div class="setting-control">
@@ -318,6 +318,52 @@
                 <input type="radio" name="autoTicketing" value="analysis"> Analysis Only
               </label>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">Gap Analysis</div>
+      <div class="section-content">
+        <div class="setting-row">
+          <div class="setting-label">Gap calculation mode</div>
+          <div class="setting-control">
+            <select id="gapCalculationMode">
+              <option value="standard">Standard</option>
+              <option value="conservative">Conservative</option>
+              <option value="csv-enhanced" selected>CSV Enhanced</option>
+              <option value="aggressive">Aggressive</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label">Payment failure buffer (days)</div>
+          <div class="setting-control">
+            <div class="slider-container">
+              <input type="range" class="slider" id="gapDeactivationBuffer" min="7" max="60" value="21">
+              <span class="slider-value" id="gapDeactivationBufferValue">21</span>
+              <span class="slider-value">days</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label">Auto-download CSV for gap analysis</div>
+          <div class="setting-control">
+            <label class="checkbox-group">
+              <input type="checkbox" id="autoDownloadCsvForGaps" checked> Enabled
+            </label>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label">Use CSV payment data for accuracy</div>
+          <div class="setting-control">
+            <label class="checkbox-group">
+              <input type="checkbox" id="useCsvPaymentData" checked> Enabled
+            </label>
           </div>
         </div>
       </div>
@@ -520,7 +566,8 @@
   </div>
   
   <div class="footer">
-    Settings are automatically saved when changed
+    Settings are automatically saved when changed •
+    <a href="https://github.com/Atlas-Authority/mpac-ui-improved/blob/main/README.md#detailed-settings-reference" target="_blank" style="color: #0052cc; text-decoration: none;">📖 Detailed Settings Guide</a>
   </div>
 
   <script src="popup.js"></script>
